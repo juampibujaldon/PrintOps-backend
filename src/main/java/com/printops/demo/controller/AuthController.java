@@ -49,11 +49,12 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> logout(
             HttpServletRequest httpRequest,
             @RequestParam String deviceId,
+            @RequestParam(defaultValue = "false") boolean keepSession,
             @AuthenticationPrincipal UserDetails userDetails) {
         String token = extraerBearerToken(httpRequest);
         String ip = obtenerIp(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
-        authService.logout(token, deviceId, userDetails.getUsername(), ip, userAgent);
+        authService.logout(token, deviceId, userDetails.getUsername(), ip, userAgent, keepSession);
         return ResponseEntity.ok(Map.of("message", "Sesión cerrada correctamente"));
     }
 

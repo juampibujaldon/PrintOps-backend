@@ -124,13 +124,19 @@ public class AuthService {
     }
 
     @Transactional
-    public void logout(String accessToken, String deviceId, String email, String ip, String userAgent) {
-        // Agregar access token a la blacklist
+    public void logout(String accessToken, String deviceId, String email, String ip, String userAgent,
+                       boolean keepSession) {
+        // Agregar access token a la blacklist siempre
         agregarABlacklist(accessToken);
 
-        // Revocar refresh token del dispositivo
         userRepository.findByEmail(email).ifPresent(user -> {
-            refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
+            // keepSession=true: el usuario tiene biometría habilitada.
+            // Solo se invalida el access token (ya blacklisteado arriba).
+            // El refresh token permanece válido para que Face ID pueda renovar la sesión.
+            // keepSession=false: logout completo, se revoca también el refresh token.
+            if (!keepSession) {
+                refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
+            }
             registrarAudit(user.getId(), email, ip, userAgent, LoginAudit.Action.LOGOUT);
         });
     }
