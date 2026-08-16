@@ -6,6 +6,8 @@ import com.printops.demo.dto.PrinterResponseDTO;
 import com.printops.demo.entity.Printer;
 import com.printops.demo.entity.PrinterStatus;
 import com.printops.demo.repository.PrinterRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -24,6 +26,8 @@ import java.util.UUID;
 @Service
 public class PrinterService {
 
+    private static final Logger log = LoggerFactory.getLogger(PrinterService.class);
+
     private final PrinterRepository printerRepository;
     private final String uploadDir = "uploads/printers/";
 
@@ -41,7 +45,11 @@ public class PrinterService {
     // El id lo asigna la DB y el qrCodeData se genera acá, nunca desde el cliente.
     @Transactional
     public PrinterResponseDTO createPrinter(CreatePrinterRequest dto, MultipartFile photo) {
+        log.info("Creando impresora: serialNumber={}, brand={}, model={}",
+                dto.serialNumber(), dto.brand(), dto.model());
+
         if (printerRepository.findBySerialNumber(dto.serialNumber()).isPresent()) {
+            log.warn("Número de serie duplicado: {}", dto.serialNumber());
             throw new IllegalArgumentException("El número de serie ya está registrado.");
         }
 
@@ -59,6 +67,8 @@ public class PrinterService {
         printer.setQrCodeData(UUID.randomUUID().toString());
 
         if (photo != null && !photo.isEmpty()) {
+            log.info("Procesando foto: originalName={}, size={} bytes",
+                    photo.getOriginalFilename(), photo.getSize());
             String fileName = UUID.randomUUID() + "_" + photo.getOriginalFilename();
             try {
                 Path targetLocation = Paths.get(uploadDir).resolve(fileName);
@@ -71,12 +81,18 @@ public class PrinterService {
                         .toUriString();
 
                 printer.setPhotoUrl(fileDownloadUri);
+                log.info("Foto guardada en: {}", targetLocation);
             } catch (IOException ex) {
+                log.error("Error guardando la foto", ex);
                 throw new RuntimeException("No se pudo guardar la foto.", ex);
             }
+        } else {
+            log.info("Sin foto adjunta (opcional).");
         }
 
-        return toResponse(printerRepository.save(printer));
+        Printer saved = printerRepository.save(printer);
+        log.info("Impresora guardada con id={}", saved.getId());
+        return toResponse(saved);
     }
 
     // FIX 3: filtro opcional por ubicación.

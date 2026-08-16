@@ -6,6 +6,9 @@ import com.printops.demo.dto.NextMaintenanceDateRequest;
 import com.printops.demo.dto.PrinterResponseDTO;
 import com.printops.demo.service.PrinterService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -17,18 +20,22 @@ import java.util.List;
 @RequestMapping("/api/printers")
 public class PrinterController {
 
+    private static final Logger log = LoggerFactory.getLogger(PrinterController.class);
+
     private final PrinterService printerService;
 
     public PrinterController(PrinterService printerService) {
         this.printerService = printerService;
     }
 
-    // FIX 1 y FIX 2: @Valid sobre el DTO y se retorna PrinterResponseDTO (nunca la entidad).
-    @PostMapping
+    // ERR-03: consumes explícito multipart/form-data. El part "printer" es JSON
+    // (CreatePrinterRequest) y el part "photo" es opcional.
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PrinterResponseDTO> createPrinter(
             @Valid @RequestPart("printer") CreatePrinterRequest printer,
             @RequestPart(value = "photo", required = false) MultipartFile photo) {
 
+        log.info("POST /api/printers: serialNumber={}", printer.serialNumber());
         PrinterResponseDTO saved = printerService.createPrinter(printer, photo);
         return ResponseEntity.ok(saved);
     }

@@ -5,6 +5,8 @@ import com.printops.demo.repository.TokenBlacklistRepository;
 import com.printops.demo.service.JwtService;
 import com.printops.demo.service.UserDetailsServiceImpl;
 import jakarta.servlet.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import jakarta.servlet.http.*;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -20,6 +22,8 @@ import java.security.NoSuchAlgorithmException;
 
 @Component
 public class JwtAuthFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
 
     private final JwtService jwtService;
     private final UserDetailsServiceImpl userDetailsService;
@@ -46,6 +50,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7);
 
         if (!jwtService.validateToken(token) || isTokenRevocado(token)) {
+            // Log para diagnosticar por qué una request queda sin autenticar
+            // (luego Spring devuelve 401/403 según la config de SecurityConfig).
+            log.warn("JWT rechazado en {}: token inválido, expirado o revocado.", request.getRequestURI());
             chain.doFilter(request, response);
             return;
         }
