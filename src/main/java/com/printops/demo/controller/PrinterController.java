@@ -47,6 +47,12 @@ public class PrinterController {
         return ResponseEntity.ok(printerService.getAllPrinters(location));
     }
 
+    // Lookup por número de serie, usado por el lector de QR.
+    @GetMapping("/by-serial/{serialNumber}")
+    public ResponseEntity<PrinterResponseDTO> getBySerialNumber(@PathVariable String serialNumber) {
+        return ResponseEntity.ok(printerService.getBySerialNumber(serialNumber));
+    }
+
     // FIX 4: actualizar fecha de próximo mantenimiento al cerrar una orden.
     @PatchMapping("/{id}/next-maintenance-date")
     public ResponseEntity<PrinterResponseDTO> updateNextMaintenanceDate(

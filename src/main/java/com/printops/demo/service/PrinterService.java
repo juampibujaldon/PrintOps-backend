@@ -64,7 +64,9 @@ public class PrinterService {
         printer.setNextMaintenanceDate(dto.nextMaintenanceDate());
 
         // El dato del QR se genera en el servidor, nunca se acepta del request.
-        printer.setQrCodeData(UUID.randomUUID().toString());
+        // Guarda un deep link con el número de serie: al escanearlo, la app puede
+        // resolver la impresora (lookup por serialNumber).
+        printer.setQrCodeData("printops://printer/" + dto.serialNumber());
 
         if (photo != null && !photo.isEmpty()) {
             log.info("Procesando foto: originalName={}, size={} bytes",
@@ -105,6 +107,14 @@ public class PrinterService {
             printers = printerRepository.findAll();
         }
         return printers.stream().map(this::toResponse).toList();
+    }
+
+    // Lookup por número de serie (usado al escanear el QR).
+    @Transactional(readOnly = true)
+    public PrinterResponseDTO getBySerialNumber(String serialNumber) {
+        return printerRepository.findBySerialNumber(serialNumber)
+                .map(this::toResponse)
+                .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con serie " + serialNumber));
     }
 
     // FIX 4: actualiza la fecha del próximo mantenimiento (ej. al cerrar una orden).
