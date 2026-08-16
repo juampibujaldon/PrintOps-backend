@@ -4,6 +4,7 @@ package com.printops.demo.service;
 import com.printops.demo.dto.AuthResponse;
 import com.printops.demo.dto.SessionInfo;
 import com.printops.demo.entity.*;
+import com.printops.demo.exception.EmailNotVerifiedException;
 import com.printops.demo.repository.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,6 +31,7 @@ public class AuthService {
     private final TokenBlacklistRepository blacklistRepository;
     private final LoginAuditRepository auditRepository;
     private final PasswordEncoder passwordEncoder;
+    private final EmailService emailService;
 
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
@@ -37,16 +39,20 @@ public class AuthService {
     @Value("${jwt.refresh-expiration-remember}")
     private long refreshExpirationRemember;
 
+    @Value("${app.base-url}")
+    private String appBaseUrl;
+
     // Rate limiting: IP -> intentos fallidos
     private final Map<String, Integer> failedAttempts = new ConcurrentHashMap<>();
     private final Map<String, Instant> lockedUntil = new ConcurrentHashMap<>();
     private static final int MAX_INTENTOS = 5;
     private static final long BLOQUEO_MS = 15 * 60 * 1000L;
+    private static final long VERIFICATION_TOKEN_TTL_SECONDS = 24 * 3600L;
 
     public AuthService(AuthenticationManager authManager, JwtService jwtService,
                        UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
                        TokenBlacklistRepository blacklistRepository, LoginAuditRepository auditRepository,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder, EmailService emailService) {
         this.authManager = authManager;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
@@ -54,6 +60,7 @@ public class AuthService {
         this.blacklistRepository = blacklistRepository;
         this.auditRepository = auditRepository;
         this.passwordEncoder = passwordEncoder;
+        this.emailService = emailService;
     }
 
     @Transactional
@@ -74,6 +81,11 @@ public class AuthService {
 
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Credenciales inválidas"));
+
+        // Verificación por mail: no se permite iniciar sesión hasta verificar.
+        if (!user.isEmailVerified()) {
+            throw new EmailNotVerifiedException("Debes verificar tu email antes de iniciar sesión.");
+        }
 
         // Login exitoso: limpiar intentos fallidos
         failedAttempts.remove(ip);
@@ -101,7 +113,57 @@ public class AuthService {
         user.setPassword(passwordEncoder.encode(password));
         user.setRole(Role.TECNICO);
         user.setEnabled(true);
+        user.setEmailVerified(false);
+
+        // Token de verificación único con expiración de 24 hs.
+        String token = UUID.randomUUID().toString();
+        user.setVerificationToken(token);
+        user.setVerificationTokenExpiry(Instant.now().plusSeconds(VERIFICATION_TOKEN_TTL_SECONDS));
+
         userRepository.save(user);
+
+        // Envío del magic link. Si falla, la transacción se revierte y el registro no persiste.
+        emailService.sendVerificationEmail(email, buildVerificationUrl(token));
+    }
+
+    // Verifica el email usando el token del magic link.
+    @Transactional
+    public void verifyEmail(String token) {
+        User user = userRepository.findByVerificationToken(token)
+                .orElseThrow(() -> new BadCredentialsException("Token de verificación inválido."));
+
+        if (user.isEmailVerified()) {
+            return; // Idempotente: ya estaba verificado.
+        }
+
+        if (user.getVerificationTokenExpiry() != null
+                && Instant.now().isAfter(user.getVerificationTokenExpiry())) {
+            throw new BadCredentialsException("El enlace de verificación expiró. Solicitá uno nuevo.");
+        }
+
+        user.setEmailVerified(true);
+        user.setVerificationToken(null);
+        user.setVerificationTokenExpiry(null);
+        userRepository.save(user);
+    }
+
+    // Reenvía el mail de verificación (solo si el usuario existe y aún no verificó).
+    @Transactional
+    public void resendVerification(String email) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            if (!user.isEmailVerified()) {
+                String token = UUID.randomUUID().toString();
+                user.setVerificationToken(token);
+                user.setVerificationTokenExpiry(Instant.now().plusSeconds(VERIFICATION_TOKEN_TTL_SECONDS));
+                userRepository.save(user);
+                emailService.sendVerificationEmail(email, buildVerificationUrl(token));
+            }
+        });
+        // Siempre responde OK para no revelar si el email existe.
+    }
+
+    private String buildVerificationUrl(String token) {
+        return appBaseUrl + "/api/auth/verify-email?token=" + token;
     }
 
     @Transactional

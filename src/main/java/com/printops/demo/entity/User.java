@@ -29,6 +29,16 @@ public class User {
     @Column(nullable = false)
     private boolean enabled;
 
+    // Verificación de email (Resend): por defecto el usuario no está verificado.
+    @Column(name = "email_verified", nullable = false, columnDefinition = "BOOLEAN DEFAULT false")
+    private boolean emailVerified = false;
+
+    @Column(name = "verification_token", unique = true)
+    private String verificationToken;
+
+    @Column(name = "verification_token_expiry")
+    private Instant verificationTokenExpiry;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -51,4 +61,13 @@ public class User {
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public boolean isEmailVerified() { return emailVerified; }
+    public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
+
+    public String getVerificationToken() { return verificationToken; }
+    public void setVerificationToken(String verificationToken) { this.verificationToken = verificationToken; }
+
+    public Instant getVerificationTokenExpiry() { return verificationTokenExpiry; }
+    public void setVerificationTokenExpiry(Instant verificationTokenExpiry) { this.verificationTokenExpiry = verificationTokenExpiry; }
 }

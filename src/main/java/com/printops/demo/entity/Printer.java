@@ -35,9 +35,18 @@ public class Printer {
     @Column(nullable = true)
     private String photoUrl;
 
+    // Ubicación física de la impresora (FIX 3). Opcional.
+    @Column(nullable = true)
+    private String location;
+
+    // Fecha del próximo mantenimiento programado (FIX 4). Opcional.
+    @Column(nullable = true)
+    private LocalDate nextMaintenanceDate;
+
     @Column(unique = true, nullable = false)
     private String qrCodeData;
 
+    // Fallback defensivo: si el servicio no generó el QR, se asigna acá.
     @PrePersist
     protected void onCreate() {
         if (this.qrCodeData == null) {
@@ -65,6 +74,10 @@ public class Printer {
     public void setStatus(PrinterStatus status) { this.status = status; }
     public String getPhotoUrl() { return photoUrl; }
     public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
+    public String getLocation() { return location; }
+    public void setLocation(String location) { this.location = location; }
+    public LocalDate getNextMaintenanceDate() { return nextMaintenanceDate; }
+    public void setNextMaintenanceDate(LocalDate nextMaintenanceDate) { this.nextMaintenanceDate = nextMaintenanceDate; }
     public String getQrCodeData() { return qrCodeData; }
     public void setQrCodeData(String qrCodeData) { this.qrCodeData = qrCodeData; }
 }

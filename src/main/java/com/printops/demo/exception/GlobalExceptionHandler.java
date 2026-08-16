@@ -4,12 +4,11 @@ package com.printops.demo.exception;
 import org.springframework.http.*;
 import org.springframework.security.authentication.*;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -38,16 +37,26 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", "Credenciales inválidas"));
     }
 
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidation(MethodArgumentNotValidException ex) {
-        Map<String, String> errors = ex.getBindingResult().getFieldErrors().stream()
-                .collect(Collectors.toMap(
-                        FieldError::getField,
-                        fe -> fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "Inválido"
-                ));
-        return ResponseEntity.badRequest()
-                .body(Map.of("error", "Validación fallida", "campos", errors));
+    @ExceptionHandler(EmailNotVerifiedException.class)
+    public ResponseEntity<Map<String, String>> handleEmailNotVerified(EmailNotVerifiedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "Email no verificado", "message", ex.getMessage()));
     }
+
+    // FIX 1: devuelve 400 con un array de errores por campo
+    // [{ "field": "brand", "message": "must not be blank" }, ...]
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<List<FieldValidationError>> handleValidation(MethodArgumentNotValidException ex) {
+        List<FieldValidationError> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(fe -> new FieldValidationError(
+                        fe.getField(),
+                        fe.getDefaultMessage() != null ? fe.getDefaultMessage() : "Inválido"
+                ))
+                .toList();
+        return ResponseEntity.badRequest().body(errors);
+    }
+
+    public record FieldValidationError(String field, String message) {}
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleGeneral(Exception ex) {

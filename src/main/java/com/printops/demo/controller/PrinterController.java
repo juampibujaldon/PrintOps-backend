@@ -1,11 +1,17 @@
 // src/main/java/com/printops/demo/controller/PrinterController.java
 package com.printops.demo.controller;
 
-import com.printops.demo.entity.Printer;
+import com.printops.demo.dto.CreatePrinterRequest;
+import com.printops.demo.dto.NextMaintenanceDateRequest;
+import com.printops.demo.dto.PrinterResponseDTO;
 import com.printops.demo.service.PrinterService;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/printers")
@@ -17,17 +23,34 @@ public class PrinterController {
         this.printerService = printerService;
     }
 
+    // FIX 1 y FIX 2: @Valid sobre el DTO y se retorna PrinterResponseDTO (nunca la entidad).
     @PostMapping
-    public ResponseEntity<Printer> createPrinter(
-            @RequestPart("printer") Printer printer,
+    public ResponseEntity<PrinterResponseDTO> createPrinter(
+            @Valid @RequestPart("printer") CreatePrinterRequest printer,
             @RequestPart(value = "photo", required = false) MultipartFile photo) {
-        
-        Printer saved = printerService.createPrinter(printer, photo);
+
+        PrinterResponseDTO saved = printerService.createPrinter(printer, photo);
         return ResponseEntity.ok(saved);
     }
 
+    // FIX 3: query param opcional ?location= para filtrar.
     @GetMapping
-    public ResponseEntity<java.util.List<Printer>> getAllPrinters() {
-        return ResponseEntity.ok(printerService.getAllPrinters());
+    public ResponseEntity<List<PrinterResponseDTO>> getAllPrinters(
+            @RequestParam(required = false) String location) {
+        return ResponseEntity.ok(printerService.getAllPrinters(location));
+    }
+
+    // FIX 4: actualizar fecha de próximo mantenimiento al cerrar una orden.
+    @PatchMapping("/{id}/next-maintenance-date")
+    public ResponseEntity<PrinterResponseDTO> updateNextMaintenanceDate(
+            @PathVariable Long id,
+            @Valid @RequestBody NextMaintenanceDateRequest request) {
+        return ResponseEntity.ok(printerService.updateNextMaintenanceDate(id, request.nextMaintenanceDate()));
+    }
+
+    // FIX 4: listado de impresoras con mantenimiento vencido.
+    @GetMapping("/due-maintenance")
+    public ResponseEntity<List<PrinterResponseDTO>> getDueMaintenance() {
+        return ResponseEntity.ok(printerService.getPrintersWithDueMaintenance(LocalDate.now()));
     }
 }

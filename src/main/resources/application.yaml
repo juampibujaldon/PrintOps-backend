@@ -5,8 +5,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5432/printops
-    username: juampibujaldon
-    password:
+    username: printopsadmin
+    password: printops1234
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -26,4 +26,14 @@ jwt:
   refresh-expiration-remember: 2592000000  # 30 días en ms
 
 server:
-  port: 8080
+  port: 8083
+
+app:
+  # URL pública del backend, usada para armar el magic link de verificación.
+  base-url: ${APP_BASE_URL:http://localhost:8083}
+
+resend:
+  # API key de Resend (no commitear el valor real; usar variable de entorno).
+  api-key: ${RESEND_API_KEY:}
+  # Remitente. Para pruebas podés usar el dominio de Resend "onboarding@resend.dev".
+  from: ${RESEND_FROM:PrintOps <onboarding@resend.dev>}

@@ -5,6 +5,7 @@ import com.printops.demo.dto.*;
 import com.printops.demo.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -37,7 +38,52 @@ public class AuthController {
     @PostMapping("/register")
     public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request.email(), request.password());
-        return ResponseEntity.ok(Map.of("message", "Usuario registrado exitosamente"));
+        return ResponseEntity.ok(Map.of(
+                "message", "Usuario registrado. Te enviamos un email para verificar tu cuenta."
+        ));
+    }
+
+    // Verificación por mail (magic link): se abre desde el navegador.
+    @GetMapping("/verify-email")
+    public ResponseEntity<String> verifyEmail(@RequestParam String token) {
+        try {
+            authService.verifyEmail(token);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.TEXT_HTML)
+                    .body(verificationHtml(true, null));
+        } catch (Exception e) {
+            String message = e.getMessage() != null ? e.getMessage() : "Token inválido.";
+            return ResponseEntity.badRequest()
+                    .contentType(MediaType.TEXT_HTML)
+                    .body(verificationHtml(false, message));
+        }
+    }
+
+    // Reenvío del mail de verificación.
+    @PostMapping("/resend-verification")
+    public ResponseEntity<Map<String, String>> resendVerification(
+            @Valid @RequestBody ResendVerificationRequest request) {
+        authService.resendVerification(request.email());
+        return ResponseEntity.ok(Map.of(
+                "message", "Si el email existe y no está verificado, te reenviamos el enlace."
+        ));
+    }
+
+    private String verificationHtml(boolean ok, String error) {
+        if (ok) {
+            return """
+                    <html><body style="font-family:Arial,sans-serif;text-align:center;padding-top:60px">
+                      <h2 style="color:#283618">Email verificado correctamente</h2>
+                      <p>Ya podés volver a la app de PrintOps e iniciar sesión.</p>
+                    </body></html>
+                    """;
+        }
+        return """
+                <html><body style="font-family:Arial,sans-serif;text-align:center;padding-top:60px">
+                  <h2 style="color:#d9534f">No se pudo verificar el email</h2>
+                  <p>%s</p>
+                </body></html>
+                """.formatted(error == null ? "Token inválido o expirado." : error);
     }
 
     @PostMapping("/refresh")
