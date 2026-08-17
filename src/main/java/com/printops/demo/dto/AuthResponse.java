@@ -7,5 +7,5 @@ public record AuthResponse(
     long expiresIn,
     UserInfo user
 ) {
-    public record UserInfo(Long id, String email, String role) {}
+    public record UserInfo(Long id, String email, String role, Long workspaceId) {}
 }

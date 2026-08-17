@@ -50,6 +50,21 @@ public class EmailService {
         send(to, subject, html);
     }
 
+    // Invitación a un técnico a unirse al taller (contiene el código de invitación).
+    public void sendInvitationEmail(String to, String token, String workspaceName) {
+        String subject = "Invitación a " + (workspaceName != null ? workspaceName : "PrintOps");
+        String html = """
+                <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+                  <h2 style="color:#283618">Te invitaron a un taller de PrintOps</h2>
+                  <p>Fuiste invitado a unirte al taller <b>%s</b> como técnico.</p>
+                  <p>Usá este código al registrarte en la app:</p>
+                  <p style="margin:24px 0;font-size:22px;font-weight:bold;letter-spacing:2px">%s</p>
+                  <p style="color:#666;font-size:12px">El código expira en 7 días. Si no esperabas esta invitación, ignorá este mensaje.</p>
+                </div>
+                """.formatted(workspaceName != null ? workspaceName : "PrintOps", token);
+        send(to, subject, html);
+    }
+
     public void send(String to, String subject, String html) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("RESEND_API_KEY no está configurada.");
@@ -71,7 +86,7 @@ public class EmailService {
                 throw new RuntimeException("Resend devolvió " + response.statusCode() + ": " + response.body());
             }
         } catch (IOException e) {
-            throw new RuntimeException("No se pudo enviar el email de verificación.", e);
+            throw new RuntimeException("No se pudo enviar el email.", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("El envío del email fue interrumpido.", e);

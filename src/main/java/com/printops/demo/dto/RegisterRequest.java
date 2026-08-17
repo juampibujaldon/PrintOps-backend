@@ -11,5 +11,12 @@ public record RegisterRequest(
 
         @NotBlank(message = "La contraseña no puede estar vacía")
         @Size(min = 8, message = "La contraseña debe tener al menos 8 caracteres")
-        String password
+        String password,
+
+        // Opcional: si viene, el usuario se registra como TECNICO uniéndose al
+        // workspace de esa invitación. Si no viene, se registra como MANAGER.
+        String inviteToken,
+
+        // Opcional: nombre del taller cuando se registra un MANAGER.
+        String workspaceName
 ) {}

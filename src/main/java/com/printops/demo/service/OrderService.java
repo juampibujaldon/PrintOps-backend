@@ -124,15 +124,46 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponseDTO updateStatus(Long id, UpdateOrderStatusRequest request) {
+    public OrderResponseDTO updateStatus(Long id, UpdateOrderStatusRequest request, String role) {
         MaintenanceOrder order = orderRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
 
-        order.setStatus(parseStatus(request.status()));
+        OrderStatus to = parseStatus(request.status());
+        validateTransition(order.getStatus(), to, role);
+
+        order.setStatus(to);
         if (request.actualTimeMinutes() != null) {
             order.setActualTimeMinutes(request.actualTimeMinutes());
         }
         return toResponse(orderRepository.save(order));
+    }
+
+    // Reglas de transición por rol (US de revisión):
+    //  - TECNICO: PENDING↔IN_PROGRESS, IN_PROGRESS→IN_REVIEW, REJECTED→IN_PROGRESS, y puede cancelar PENDING/IN_PROGRESS.
+    //  - MANAGER: aprueba (IN_REVIEW→APPROVED) o rechaza (IN_REVIEW→REJECTED), y puede cancelar.
+    private void validateTransition(OrderStatus from, OrderStatus to, String role) {
+        boolean isManager = role != null && role.contains("MANAGER");
+
+        boolean allowed;
+        if (isManager) {
+            allowed = switch (to) {
+                case APPROVED -> from == OrderStatus.IN_REVIEW;
+                case REJECTED -> from == OrderStatus.IN_REVIEW;
+                case CANCELLED -> from == OrderStatus.PENDING || from == OrderStatus.IN_PROGRESS || from == OrderStatus.IN_REVIEW;
+                default -> false;
+            };
+        } else {
+            allowed = switch (to) {
+                case IN_PROGRESS -> from == OrderStatus.PENDING || from == OrderStatus.REJECTED;
+                case IN_REVIEW -> from == OrderStatus.IN_PROGRESS;
+                case CANCELLED -> from == OrderStatus.PENDING || from == OrderStatus.IN_PROGRESS;
+                default -> false;
+            };
+        }
+
+        if (!allowed) {
+            throw new IllegalArgumentException("Transición no permitida de " + from + " a " + to + " para tu rol.");
+        }
     }
 
     @Transactional

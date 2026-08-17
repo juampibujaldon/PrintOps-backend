@@ -32,6 +32,8 @@ public class AuthService {
     private final LoginAuditRepository auditRepository;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final WorkspaceRepository workspaceRepository;
+    private final WorkspaceInviteRepository inviteRepository;
 
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
@@ -48,11 +50,13 @@ public class AuthService {
     private static final int MAX_INTENTOS = 5;
     private static final long BLOQUEO_MS = 15 * 60 * 1000L;
     private static final long VERIFICATION_TOKEN_TTL_SECONDS = 24 * 3600L;
+    private static final long INVITE_TOKEN_TTL_SECONDS = 7 * 24 * 3600L;
 
     public AuthService(AuthenticationManager authManager, JwtService jwtService,
                        UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
                        TokenBlacklistRepository blacklistRepository, LoginAuditRepository auditRepository,
-                       PasswordEncoder passwordEncoder, EmailService emailService) {
+                       PasswordEncoder passwordEncoder, EmailService emailService,
+                       WorkspaceRepository workspaceRepository, WorkspaceInviteRepository inviteRepository) {
         this.authManager = authManager;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
@@ -61,6 +65,8 @@ public class AuthService {
         this.auditRepository = auditRepository;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
+        this.workspaceRepository = workspaceRepository;
+        this.inviteRepository = inviteRepository;
     }
 
     @Transactional
@@ -103,7 +109,7 @@ public class AuthService {
     }
 
     @Transactional
-    public void register(String email, String password) {
+    public void register(String email, String password, String inviteToken, String workspaceName) {
         if (userRepository.findByEmail(email).isPresent()) {
             throw new BadCredentialsException("El email ya está registrado");
         }
@@ -111,9 +117,31 @@ public class AuthService {
         User user = new User();
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
-        user.setRole(Role.TECNICO);
         user.setEnabled(true);
         user.setEmailVerified(false);
+
+        // Con inviteToken → TECNICO que se une a un workspace existente.
+        // Sin inviteToken → MANAGER que crea su propio workspace.
+        if (inviteToken != null && !inviteToken.isBlank()) {
+            WorkspaceInvite invite = inviteRepository.findByToken(inviteToken)
+                    .orElseThrow(() -> new BadCredentialsException("Código de invitación inválido."));
+            if (invite.isAccepted()) {
+                throw new BadCredentialsException("Esta invitación ya fue usada.");
+            }
+            if (Instant.now().isAfter(invite.getExpiresAt())) {
+                throw new BadCredentialsException("La invitación expiró. Pedí una nueva al manager.");
+            }
+            user.setRole(Role.TECNICO);
+            user.setWorkspaceId(invite.getWorkspaceId());
+            invite.setAccepted(true);
+            inviteRepository.save(invite);
+        } else {
+            Workspace ws = new Workspace();
+            ws.setName(workspaceName != null && !workspaceName.isBlank() ? workspaceName : ("Taller de " + email));
+            ws = workspaceRepository.save(ws);
+            user.setRole(Role.MANAGER);
+            user.setWorkspaceId(ws.getId());
+        }
 
         // Token de verificación único con expiración de 24 hs.
         String token = UUID.randomUUID().toString();
@@ -304,7 +332,7 @@ public class AuthService {
                 accessToken,
                 refreshToken,
                 900,
-                new AuthResponse.UserInfo(user.getId(), user.getEmail(), user.getRole().name())
+                new AuthResponse.UserInfo(user.getId(), user.getEmail(), user.getRole().name(), user.getWorkspaceId())
         );
     }
 

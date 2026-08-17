@@ -39,6 +39,10 @@ public class User {
     @Column(name = "verification_token_expiry")
     private Instant verificationTokenExpiry;
 
+    // Workspace al que pertenece (1:1). Null solo mientras está pendiente.
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -70,4 +74,7 @@ public class User {
 
     public Instant getVerificationTokenExpiry() { return verificationTokenExpiry; }
     public void setVerificationTokenExpiry(Instant verificationTokenExpiry) { this.verificationTokenExpiry = verificationTokenExpiry; }
+
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
 }

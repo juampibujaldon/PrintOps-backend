@@ -8,6 +8,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -48,8 +51,14 @@ public class OrderController {
     @PatchMapping("/{id}/status")
     public ResponseEntity<OrderResponseDTO> updateStatus(
             @PathVariable Long id,
-            @Valid @RequestBody UpdateOrderStatusRequest request) {
-        return ResponseEntity.ok(orderService.updateStatus(id, request));
+            @Valid @RequestBody UpdateOrderStatusRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String role = userDetails != null
+                ? userDetails.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .findFirst().orElse("")
+                : "";
+        return ResponseEntity.ok(orderService.updateStatus(id, request, role));
     }
 
     @PostMapping("/{id}/parts")

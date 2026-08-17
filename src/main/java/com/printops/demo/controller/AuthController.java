@@ -37,7 +37,7 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest request) {
-        authService.register(request.email(), request.password());
+        authService.register(request.email(), request.password(), request.inviteToken(), request.workspaceName());
         return ResponseEntity.ok(Map.of(
                 "message", "Usuario registrado. Te enviamos un email para verificar tu cuenta."
         ));

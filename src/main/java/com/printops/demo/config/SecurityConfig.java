@@ -55,15 +55,14 @@ public class SecurityConfig {
                     "/api/auth/resend-verification",
                     "/uploads/**"
                 ).permitAll()
-                // Endpoints de negocio: solo usuarios autenticados con rol ADMIN o TECNICO.
-                // (El rol SUPERVISOR no existe en el enum Role de esta app; si lo
-                //  agregan, hay que sumarlo acá con hasAnyRole("ADMIN","TECNICO","SUPERVISOR"))
+                // Endpoints de negocio: solo usuarios autenticados con rol MANAGER o TECNICO.
                 .requestMatchers(
                     "/api/printers/**",
                     "/api/orders/**",
                     "/api/parts/**",
-                    "/api/notifications/**"
-                ).hasAnyRole("ADMIN", "TECNICO")
+                    "/api/notifications/**",
+                    "/api/workspaces/**"
+                ).hasAnyRole("MANAGER", "TECNICO")
                 .anyRequest().authenticated()
             )
             // Si el token falta/es inválido/expiró → 401 (así el frontend dispara el refresh).
