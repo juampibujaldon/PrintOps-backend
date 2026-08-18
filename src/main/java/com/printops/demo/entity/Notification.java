@@ -22,6 +22,14 @@ public class Notification {
     @Column
     private Long orderId;
 
+    // Usuario destinatario (opcional; null = global).
+    @Column(name = "recipient_user_id")
+    private Long recipientUserId;
+
+    // Tipo de evento (ej. "ORDER_CREATED", "ORDER_REJECTED").
+    @Column
+    private String type;
+
     @Column(nullable = false)
     private boolean read;
 
@@ -42,6 +50,10 @@ public class Notification {
     public void setMessage(String message) { this.message = message; }
     public Long getOrderId() { return orderId; }
     public void setOrderId(Long orderId) { this.orderId = orderId; }
+    public Long getRecipientUserId() { return recipientUserId; }
+    public void setRecipientUserId(Long recipientUserId) { this.recipientUserId = recipientUserId; }
+    public String getType() { return type; }
+    public void setType(String type) { this.type = type; }
     public boolean isRead() { return read; }
     public void setRead(boolean read) { this.read = read; }
     public Instant getCreatedAt() { return createdAt; }

@@ -43,6 +43,13 @@ public class User {
     @Column(name = "workspace_id")
     private Long workspaceId;
 
+    // Token de reset de contraseña (se limpia al completar el reset).
+    @Column(name = "reset_token", unique = true)
+    private String resetToken;
+
+    @Column(name = "reset_token_expiry")
+    private Instant resetTokenExpiry;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -77,4 +84,9 @@ public class User {
 
     public Long getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
+
+    public String getResetToken() { return resetToken; }
+    public void setResetToken(String resetToken) { this.resetToken = resetToken; }
+    public Instant getResetTokenExpiry() { return resetTokenExpiry; }
+    public void setResetTokenExpiry(Instant resetTokenExpiry) { this.resetTokenExpiry = resetTokenExpiry; }
 }

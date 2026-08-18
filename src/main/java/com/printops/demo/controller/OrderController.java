@@ -28,14 +28,16 @@ public class OrderController {
         this.orderService = orderService;
     }
 
-    // Crear orden (el checklist y las piezas viajan en el JSON del body).
+    // Crear orden: el técnico autenticado queda como asignado.
     @PostMapping
-    public ResponseEntity<OrderResponseDTO> create(@Valid @RequestBody CreateOrderRequest request) {
+    public ResponseEntity<OrderResponseDTO> create(
+            @Valid @RequestBody CreateOrderRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
         log.info("POST /api/orders printerId={} type={}", request.printerId(), request.type());
-        return ResponseEntity.ok(orderService.create(request));
+        return ResponseEntity.ok(orderService.create(request, userDetails.getUsername()));
     }
 
-    // Listar con filtros opcionales.
+    // Listar con filtros opcionales. Las órdenes en REVISIÓN van primero.
     @GetMapping
     public ResponseEntity<List<OrderResponseDTO>> list(
             @RequestParam(required = false) Long printerId,
@@ -48,17 +50,20 @@ public class OrderController {
         return ResponseEntity.ok(orderService.get(id));
     }
 
+    // Cambio de estado con validación de transición, rol y comentario (US-05).
     @PatchMapping("/{id}/status")
-    public ResponseEntity<OrderResponseDTO> updateStatus(
+    public ResponseEntity<OrderResponseDTO> changeStatus(
             @PathVariable Long id,
-            @Valid @RequestBody UpdateOrderStatusRequest request,
+            @Valid @RequestBody StatusChangeRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
-        String role = userDetails != null
-                ? userDetails.getAuthorities().stream()
-                        .map(GrantedAuthority::getAuthority)
-                        .findFirst().orElse("")
-                : "";
-        return ResponseEntity.ok(orderService.updateStatus(id, request, role));
+        String role = roleOf(userDetails);
+        return ResponseEntity.ok(orderService.changeStatus(id, request, role, userDetails.getUsername()));
+    }
+
+    // Historial inmutable de cambios de estado.
+    @GetMapping("/{id}/history")
+    public ResponseEntity<List<StatusHistoryResponse>> history(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.getHistory(id));
     }
 
     @PostMapping("/{id}/parts")
@@ -74,5 +79,13 @@ public class OrderController {
             @PathVariable Long id,
             @RequestPart(value = "photos", required = false) List<MultipartFile> photos) {
         return ResponseEntity.ok(orderService.addPhotos(id, photos));
+    }
+
+    private String roleOf(UserDetails userDetails) {
+        return userDetails != null
+                ? userDetails.getAuthorities().stream()
+                        .map(GrantedAuthority::getAuthority)
+                        .findFirst().orElse("")
+                : "";
     }
 }

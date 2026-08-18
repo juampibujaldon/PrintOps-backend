@@ -41,6 +41,9 @@ public class AuthService {
     @Value("${jwt.refresh-expiration-remember}")
     private long refreshExpirationRemember;
 
+    @Value("${jwt.expiration}")
+    private long accessExpiration;
+
     @Value("${app.base-url}")
     private String appBaseUrl;
 
@@ -51,6 +54,7 @@ public class AuthService {
     private static final long BLOQUEO_MS = 15 * 60 * 1000L;
     private static final long VERIFICATION_TOKEN_TTL_SECONDS = 24 * 3600L;
     private static final long INVITE_TOKEN_TTL_SECONDS = 7 * 24 * 3600L;
+    private static final long RESET_TOKEN_TTL_SECONDS = 3600L;
 
     public AuthService(AuthenticationManager authManager, JwtService jwtService,
                        UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
@@ -194,6 +198,10 @@ public class AuthService {
         return appBaseUrl + "/api/auth/verify-email?token=" + token;
     }
 
+    private String buildResetUrl(String token) {
+        return "printops://reset-password?token=" + token;
+    }
+
     @Transactional
     public AuthResponse refresh(String rawRefreshToken, String deviceId) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(rawRefreshToken)
@@ -234,12 +242,32 @@ public class AuthService {
     public void forgotPassword(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
             String resetToken = UUID.randomUUID().toString();
-            Instant expiry = Instant.now().plusSeconds(3600);
-            // Simular envío por email (log en consola)
-            System.out.printf("[EMAIL SIMULADO] Reset password para %s - Token: %s - Expira: %s%n",
-                    email, resetToken, expiry);
+            Instant expiry = Instant.now().plusSeconds(RESET_TOKEN_TTL_SECONDS);
+            user.setResetToken(resetToken);
+            user.setResetTokenExpiry(expiry);
+            userRepository.save(user);
+            emailService.sendPasswordResetEmail(email, resetToken, buildResetUrl(resetToken));
         });
         // Siempre responde OK para no revelar si el email existe
+    }
+
+    // Restablece la contraseña con el token enviado por email.
+    @Transactional
+    public void resetPassword(String token, String newPassword) {
+        User user = userRepository.findByResetToken(token)
+                .orElseThrow(() -> new BadCredentialsException("Token de reset inválido."));
+
+        if (user.getResetTokenExpiry() != null && Instant.now().isAfter(user.getResetTokenExpiry())) {
+            throw new BadCredentialsException("El enlace de reset expiró. Solicitá uno nuevo.");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        user.setResetToken(null);
+        user.setResetTokenExpiry(null);
+        userRepository.save(user);
+
+        // Por seguridad: se revocan todas las sesiones activas del usuario.
+        refreshTokenRepository.revokeAllByUser(user);
     }
 
     @Transactional(readOnly = true)
@@ -259,11 +287,6 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Usuario no encontrado"));
         refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
-    }
-
-    public boolean isTokenRevocado(String token) {
-        String hash = hashToken(token);
-        return blacklistRepository.existsByTokenHash(hash);
     }
 
     // Limpieza automática cada hora
@@ -331,7 +354,7 @@ public class AuthService {
         return new AuthResponse(
                 accessToken,
                 refreshToken,
-                900,
+                (int) (accessExpiration / 1000),
                 new AuthResponse.UserInfo(user.getId(), user.getEmail(), user.getRole().name(), user.getWorkspaceId())
         );
     }

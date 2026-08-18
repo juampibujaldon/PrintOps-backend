@@ -17,6 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.http.HttpMethod;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -51,10 +52,13 @@ public class SecurityConfig {
                     "/api/auth/register",
                     "/api/auth/refresh",
                     "/api/auth/forgot-password",
+                    "/api/auth/reset-password",
                     "/api/auth/verify-email",
                     "/api/auth/resend-verification",
                     "/uploads/**"
                 ).permitAll()
+                // Solo los técnicos crean órdenes (US-05: el técnico es quien la ejecuta).
+                .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("TECNICO")
                 // Endpoints de negocio: solo usuarios autenticados con rol MANAGER o TECNICO.
                 .requestMatchers(
                     "/api/printers/**",

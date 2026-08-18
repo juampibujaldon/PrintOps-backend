@@ -65,8 +65,30 @@ public class EmailService {
         send(to, subject, html);
     }
 
-    public void send(String to, String subject, String html) {
-        if (apiKey == null || apiKey.isBlank()) {
+    // Email para restablecer la contraseña (contiene el token y el enlace con el mismo token).
+    public void sendPasswordResetEmail(String to, String token, String resetUrl) {
+        String subject = "Restablecé tu contraseña en PrintOps";
+        String html = """
+                <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
+                  <h2 style="color:#283618">Restablecer contraseña</h2>
+                  <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta de PrintOps.</p>
+                  <p style="margin:24px 0">
+                    <a href="%s"
+                       style="background-color:#283618;color:#ffffff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">
+                       Restablecer mi contraseña
+                    </a>
+                  </p>
+                  <p style="color:#666">Si el enlace no funciona, ingresá este código en la app:</p>
+                  <p style="margin:24px 0;font-size:16px;font-weight:bold;letter-spacing:1px">%s</p>
+                  <p style="color:#666;font-size:12px">
+                    Si no solicitaste este cambio, ignorá este mensaje. El enlace expira en 1 hora.
+                  </p>
+                </div>
+                """.formatted(resetUrl, token);
+        send(to, subject, html);
+    }
+
+    public void send(String to, String subject, String html) {        if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("RESEND_API_KEY no está configurada.");
         }
 

@@ -20,6 +20,11 @@ public class MaintenanceOrder {
     @JoinColumn(name = "printer_id")
     private Printer printer;
 
+    // Técnico asignado a la orden (US-05). Por ahora = quien la crea.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "assigned_to")
+    private User assignedTo;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private OrderType type;
@@ -90,6 +95,8 @@ public class MaintenanceOrder {
     public void setId(Long id) { this.id = id; }
     public Printer getPrinter() { return printer; }
     public void setPrinter(Printer printer) { this.printer = printer; }
+    public User getAssignedTo() { return assignedTo; }
+    public void setAssignedTo(User assignedTo) { this.assignedTo = assignedTo; }
     public OrderType getType() { return type; }
     public void setType(OrderType type) { this.type = type; }
     public OrderStatus getStatus() { return status; }

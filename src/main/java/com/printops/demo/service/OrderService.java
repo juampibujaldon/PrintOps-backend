@@ -6,6 +6,8 @@ import com.printops.demo.entity.*;
 import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.PartRepository;
 import com.printops.demo.repository.PrinterRepository;
+import com.printops.demo.repository.StatusHistoryRepository;
+import com.printops.demo.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -31,16 +34,22 @@ public class OrderService {
     private final MaintenanceOrderRepository orderRepository;
     private final PrinterRepository printerRepository;
     private final PartRepository partRepository;
+    private final UserRepository userRepository;
+    private final StatusHistoryRepository historyRepository;
     private final NotificationService notificationService;
     private final String uploadDir = "uploads/orders/";
 
     public OrderService(MaintenanceOrderRepository orderRepository,
                         PrinterRepository printerRepository,
                         PartRepository partRepository,
+                        UserRepository userRepository,
+                        StatusHistoryRepository historyRepository,
                         NotificationService notificationService) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
         this.partRepository = partRepository;
+        this.userRepository = userRepository;
+        this.historyRepository = historyRepository;
         this.notificationService = notificationService;
         try {
             Files.createDirectories(Paths.get(uploadDir));
@@ -50,30 +59,29 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponseDTO create(CreateOrderRequest dto) {
+    public OrderResponseDTO create(CreateOrderRequest dto, String creatorEmail) {
         Printer printer = printerRepository.findById(dto.printerId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + dto.printerId()));
+        User creator = userRepository.findByEmail(creatorEmail)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
 
         OrderType type = parseType(dto.type());
 
-        // Si la impresora está FUERA DE SERVICIO, la orden debe ser Correctivo.
         if (printer.getStatus() == PrinterStatus.OUT_OF_SERVICE && type != OrderType.CORRECTIVE) {
             throw new IllegalArgumentException("La impresora está fuera de servicio: la orden debe ser Correctivo.");
         }
-
-        // En Correctivo la descripción del problema es obligatoria.
         if (type == OrderType.CORRECTIVE && (dto.description() == null || dto.description().isBlank())) {
             throw new IllegalArgumentException("La descripción del problema es obligatoria para órdenes correctivas.");
         }
 
         MaintenanceOrder order = new MaintenanceOrder();
         order.setPrinter(printer);
+        order.setAssignedTo(creator); // técnico asignado = quien la crea (US-05)
         order.setType(type);
-        order.setStatus(OrderStatus.PENDING); // siempre se crea en Pending
+        order.setStatus(OrderStatus.PENDING);
         order.setDescription(blankToNull(dto.description()));
         order.setEstimatedTimeMinutes(dto.estimatedTimeMinutes());
 
-        // Checklist
         if (dto.checklistItems() != null) {
             for (CreateOrderRequest.ChecklistItemInput item : dto.checklistItems()) {
                 OrderChecklistItem ci = new OrderChecklistItem();
@@ -84,7 +92,6 @@ public class OrderService {
             }
         }
 
-        // Piezas
         if (dto.parts() != null) {
             for (CreateOrderRequest.PartInput input : dto.parts()) {
                 order.addPart(buildOrderPart(input));
@@ -93,12 +100,18 @@ public class OrderService {
 
         MaintenanceOrder saved = orderRepository.save(order);
 
-        // Notificación al supervisor/admin.
-        notificationService.create(
-                "Nueva orden de " + type + " creada para la impresora " + printer.getSerialNumber(),
+        // Historial inicial (inmutable): la orden "nace" en PENDING.
+        saveHistory(saved.getId(), null, OrderStatus.PENDING, null, creator);
+
+        // Notificación al técnico asignado.
+        notificationService.createFor(
+                creator.getId(),
+                "ORDER_CREATED",
+                "Nueva orden #" + saved.getId() + " creada para la impresora " + printer.getSerialNumber(),
                 saved.getId());
 
-        log.info("Orden creada id={} tipo={} impresora={}", saved.getId(), type, printer.getSerialNumber());
+        log.info("Orden creada id={} tipo={} impresora={} asignada a={}",
+                saved.getId(), type, printer.getSerialNumber(), creator.getEmail());
         return toResponse(saved);
     }
 
@@ -114,7 +127,13 @@ public class OrderService {
         } else {
             orders = orderRepository.findAll();
         }
-        return orders.stream().map(this::toResponse).toList();
+        // US-05: las órdenes en REVISIÓN van primero (necesitan acción del manager).
+        return orders.stream()
+                .sorted(Comparator
+                        .comparing((MaintenanceOrder o) -> o.getStatus() != OrderStatus.IN_REVIEW)
+                        .thenComparing(MaintenanceOrder::getCreatedAt, Comparator.reverseOrder()))
+                .map(this::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -124,37 +143,74 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderResponseDTO updateStatus(Long id, UpdateOrderStatusRequest request, String role) {
+    public OrderResponseDTO changeStatus(Long id, StatusChangeRequest request, String role, String email) {
         MaintenanceOrder order = orderRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
+        User actor = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
 
-        OrderStatus to = parseStatus(request.status());
-        validateTransition(order.getStatus(), to, role);
+        OrderStatus from = order.getStatus();
+        OrderStatus to = parseStatus(request.newStatus());
+
+        boolean isManager = role != null && role.contains("MANAGER");
+
+        // Validación de transición legal + rol + asignación.
+        validateTransition(order, from, to, isManager, actor);
+
+        // Rechazo (IN_REVIEW -> IN_PROGRESS): comentario obligatorio.
+        if (from == OrderStatus.IN_REVIEW && to == OrderStatus.IN_PROGRESS
+                && (request.comment() == null || request.comment().isBlank())) {
+            throw new IllegalArgumentException("El comentario es obligatorio para rechazar una orden.");
+        }
 
         order.setStatus(to);
-        if (request.actualTimeMinutes() != null) {
-            order.setActualTimeMinutes(request.actualTimeMinutes());
-        }
-        return toResponse(orderRepository.save(order));
+        OrderResponseDTO response = toResponse(orderRepository.save(order));
+
+        // Historial inmutable.
+        saveHistory(order.getId(), from, to, blankToNull(request.comment()), actor);
+
+        // Notificaciones por evento (US-05).
+        notifyStatusChange(order, from, to, actor, request.comment());
+
+        return response;
     }
 
-    // Reglas de transición por rol (US de revisión):
-    //  - TECNICO: PENDING↔IN_PROGRESS, IN_PROGRESS→IN_REVIEW, REJECTED→IN_PROGRESS, y puede cancelar PENDING/IN_PROGRESS.
-    //  - MANAGER: aprueba (IN_REVIEW→APPROVED) o rechaza (IN_REVIEW→REJECTED), y puede cancelar.
-    private void validateTransition(OrderStatus from, OrderStatus to, String role) {
-        boolean isManager = role != null && role.contains("MANAGER");
+    @Transactional(readOnly = true)
+    public List<StatusHistoryResponse> getHistory(Long id) {
+        return historyRepository.findByOrderIdOrderByChangedAtDesc(id).stream()
+                .map(h -> new StatusHistoryResponse(
+                        h.getId(),
+                        h.getOrderId(),
+                        h.getFromStatus() != null ? h.getFromStatus().name() : null,
+                        h.getToStatus() != null ? h.getToStatus().name() : null,
+                        h.getComment(),
+                        h.getChangedBy() != null ? h.getChangedBy().getId() : null,
+                        h.getChangedBy() != null ? h.getChangedBy().getEmail() : null,
+                        h.getChangedAt()))
+                .toList();
+    }
+
+    // Reglas de transición (US-05). Devuelve 400 (IllegalArgumentException) si es ilegal.
+    private void validateTransition(MaintenanceOrder order, OrderStatus from, OrderStatus to,
+                                    boolean isManager, User actor) {
+        boolean isAssigned = order.getAssignedTo() != null
+                && order.getAssignedTo().getId().equals(actor.getId());
 
         boolean allowed;
         if (isManager) {
             allowed = switch (to) {
-                case APPROVED -> from == OrderStatus.IN_REVIEW;
-                case REJECTED -> from == OrderStatus.IN_REVIEW;
+                case COMPLETED -> from == OrderStatus.IN_REVIEW;
+                case IN_PROGRESS -> from == OrderStatus.IN_REVIEW; // rechazo
                 case CANCELLED -> from == OrderStatus.PENDING || from == OrderStatus.IN_PROGRESS || from == OrderStatus.IN_REVIEW;
                 default -> false;
             };
         } else {
+            // Técnico: solo si es el asignado.
+            if (!isAssigned) {
+                throw new IllegalArgumentException("Solo el técnico asignado puede mover esta orden.");
+            }
             allowed = switch (to) {
-                case IN_PROGRESS -> from == OrderStatus.PENDING || from == OrderStatus.REJECTED;
+                case IN_PROGRESS -> from == OrderStatus.PENDING;
                 case IN_REVIEW -> from == OrderStatus.IN_PROGRESS;
                 case CANCELLED -> from == OrderStatus.PENDING || from == OrderStatus.IN_PROGRESS;
                 default -> false;
@@ -164,6 +220,44 @@ public class OrderService {
         if (!allowed) {
             throw new IllegalArgumentException("Transición no permitida de " + from + " a " + to + " para tu rol.");
         }
+    }
+
+    private void notifyStatusChange(MaintenanceOrder order, OrderStatus from, OrderStatus to,
+                                    User actor, String comment) {
+        Long assignedId = order.getAssignedTo() != null ? order.getAssignedTo().getId() : null;
+        Long orderId = order.getId();
+        String actorName = actor.getEmail();
+
+        // El manager recibe avisos de avance; el técnico recibe avisos de aprobación/rechazo.
+        // (En este modelo 1:1 el manager es quien aprueba; acá notificamos al técnico asignado
+        //  para aprobaciones/rechazos, y dejamos registro para el manager vía el listado.)
+        if (to == OrderStatus.IN_PROGRESS && from == OrderStatus.PENDING) {
+            notificationService.createFor(null, "ORDER_STARTED",
+                    "Orden #" + orderId + " iniciada por " + actorName, orderId);
+        } else if (to == OrderStatus.IN_REVIEW) {
+            notificationService.createFor(null, "ORDER_REVIEW",
+                    "Orden #" + orderId + " lista para revisión ✓", orderId);
+        } else if (to == OrderStatus.COMPLETED) {
+            if (assignedId != null) {
+                notificationService.createFor(assignedId, "ORDER_COMPLETED",
+                        "Orden #" + orderId + " aprobada y cerrada ✓", orderId);
+            }
+        } else if (to == OrderStatus.IN_PROGRESS && from == OrderStatus.IN_REVIEW) {
+            if (assignedId != null) {
+                notificationService.createFor(assignedId, "ORDER_REJECTED",
+                        "Orden #" + orderId + " rechazada — ver comentario", orderId);
+            }
+        }
+    }
+
+    private void saveHistory(Long orderId, OrderStatus from, OrderStatus to, String comment, User actor) {
+        StatusHistory h = new StatusHistory();
+        h.setOrderId(orderId);
+        h.setFromStatus(from);
+        h.setToStatus(to);
+        h.setComment(comment);
+        h.setChangedBy(actor);
+        historyRepository.save(h);
     }
 
     @Transactional
@@ -224,13 +318,11 @@ public class OrderService {
             if (part.getStockQuantity() < quantity) {
                 throw new IllegalArgumentException("Stock insuficiente para la pieza " + part.getName());
             }
-            // Descontar stock al usar la pieza.
             part.setStockQuantity(part.getStockQuantity() - quantity);
             partRepository.save(part);
             op.setPart(part);
             op.setPartNumber(part.getPartNumber());
         } else {
-            // Pieza externa: número de parte libre.
             op.setExternal(true);
             op.setPartNumber(blankToNull(input.partNumber()));
         }
@@ -275,6 +367,8 @@ public class OrderService {
         return new OrderResponseDTO(
                 o.getId(),
                 o.getPrinter() != null ? o.getPrinter().getId() : null,
+                o.getAssignedTo() != null ? o.getAssignedTo().getId() : null,
+                o.getAssignedTo() != null ? o.getAssignedTo().getEmail() : null,
                 o.getType() != null ? o.getType().name() : null,
                 o.getStatus() != null ? o.getStatus().name() : null,
                 o.getDescription(),

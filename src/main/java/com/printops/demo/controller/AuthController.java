@@ -111,6 +111,13 @@ public class AuthController {
         return ResponseEntity.ok(Map.of("message", "Si el email existe, recibirás instrucciones de reset"));
     }
 
+    @PostMapping("/reset-password")
+    public ResponseEntity<Map<String, String>> resetPassword(
+            @Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request.token(), request.newPassword());
+        return ResponseEntity.ok(Map.of("message", "Contraseña restablecida correctamente"));
+    }
+
     @GetMapping("/sessions")
     public ResponseEntity<List<SessionInfo>> getSessions(
             @AuthenticationPrincipal UserDetails userDetails) {

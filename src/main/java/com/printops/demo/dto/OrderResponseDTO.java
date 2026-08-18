@@ -8,6 +8,8 @@ import java.util.List;
 public record OrderResponseDTO(
         Long id,
         Long printerId,
+        Long assignedToId,
+        String assignedToName,
         String type,
         String status,
         String description,
