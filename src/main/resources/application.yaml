@@ -43,6 +43,9 @@ server:
 app:
   # URL pública del backend, usada para armar el magic link de verificación.
   base-url: ${APP_BASE_URL:http://localhost:8083}
+  metrics:
+    # Tarifa horaria del operario para el costo de mano de obra del dashboard (US-08).
+    operator-hourly-rate: ${METRICS_OPERATOR_HOURLY_RATE:20.0}
 
 resend:
   # API key de Resend (no commitear el valor real; usar variable de entorno).

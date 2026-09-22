@@ -6,5 +6,6 @@ public record PartResponse(
         String name,
         String partNumber,
         int stockQuantity,
-        Double unitPrice
+        Double unitPrice,
+        Integer minStock
 ) {}

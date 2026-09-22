@@ -57,4 +57,49 @@ public interface MaintenanceOrderRepository extends JpaRepository<MaintenanceOrd
             "GROUP BY op.part.id, op.part.name, op.part.partNumber " +
             "ORDER BY SUM(op.quantity) DESC")
     List<Object[]> getPartUsageSummary(@Param("printerId") Long printerId);
+
+    // ── US-08: agregados para el dashboard de métricas globales ──────────────
+    @Query("SELECT o.status, COUNT(o) FROM MaintenanceOrder o " +
+            "WHERE o.createdAt >= :from AND o.createdAt < :to GROUP BY o.status")
+    List<Object[]> countByStatusInPeriod(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("SELECT o.type, COUNT(o) FROM MaintenanceOrder o " +
+            "WHERE o.createdAt >= :from AND o.createdAt < :to GROUP BY o.type")
+    List<Object[]> countByTypeInPeriod(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("SELECT o.printer.id, COALESCE(SUM(o.actualTimeMinutes), 0) FROM MaintenanceOrder o " +
+            "WHERE o.status = com.printops.demo.entity.OrderStatus.COMPLETED " +
+            "AND o.createdAt >= :from AND o.createdAt < :to GROUP BY o.printer.id")
+    List<Object[]> sumActualMinutesByPrinter(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("SELECT COALESCE(SUM(o.actualTimeMinutes), 0) FROM MaintenanceOrder o " +
+            "WHERE o.status = com.printops.demo.entity.OrderStatus.COMPLETED " +
+            "AND o.createdAt >= :from AND o.createdAt < :to")
+    Long totalActualMinutesInPeriod(@Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("SELECT YEAR(o.createdAt), MONTH(o.createdAt), COALESCE(SUM(o.actualTimeMinutes), 0) " +
+            "FROM MaintenanceOrder o WHERE o.status = com.printops.demo.entity.OrderStatus.COMPLETED " +
+            "AND o.createdAt >= :from AND o.createdAt < :to " +
+            "GROUP BY YEAR(o.createdAt), MONTH(o.createdAt)")
+    List<Object[]> laborMinutesByMonth(@Param("from") Instant from, @Param("to") Instant to);
+
+    // createdAt/updatedAt de COMPLETED para el tiempo promedio de resolución.
+    @Query("SELECT o.createdAt, o.updatedAt FROM MaintenanceOrder o " +
+            "WHERE o.status = com.printops.demo.entity.OrderStatus.COMPLETED " +
+            "AND o.createdAt >= :from AND o.createdAt < :to")
+    List<Object[]> completedTimestamps(@Param("from") Instant from, @Param("to") Instant to);
+
+    // Órdenes abiertas (PENDING/IN_PROGRESS) creadas antes del umbral → vencidas.
+    @Query("SELECT COUNT(o) FROM MaintenanceOrder o " +
+            "WHERE o.status IN (com.printops.demo.entity.OrderStatus.PENDING, com.printops.demo.entity.OrderStatus.IN_PROGRESS) " +
+            "AND o.createdAt < :threshold")
+    long countOverdue(@Param("threshold") Instant threshold);
+
+    // Top impresoras por cantidad de correctivas COMPLETED en el período.
+    @Query("SELECT o.printer.id, o.printer.name, COUNT(o) FROM MaintenanceOrder o " +
+            "WHERE o.type = com.printops.demo.entity.OrderType.CORRECTIVE " +
+            "AND o.status = com.printops.demo.entity.OrderStatus.COMPLETED " +
+            "AND o.createdAt >= :from AND o.createdAt < :to " +
+            "GROUP BY o.printer.id, o.printer.name ORDER BY COUNT(o) DESC")
+    List<Object[]> topFailingPrinters(@Param("from") Instant from, @Param("to") Instant to);
 }

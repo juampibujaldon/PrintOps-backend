@@ -18,5 +18,8 @@ public record PartRequest(
         Integer stockQuantity,
 
         // Precio unitario opcional (US-07). Default 0.0 si no se envía.
-        Double unitPrice
+        Double unitPrice,
+
+        // Stock mínimo opcional (US-08). Default 5 si no se envía.
+        Integer minStock
 ) {}

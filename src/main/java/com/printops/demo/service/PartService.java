@@ -48,6 +48,7 @@ public class PartService {
         part.setPartNumber(request.partNumber());
         part.setStockQuantity(request.stockQuantity());
         part.setUnitPrice(request.unitPrice() != null ? request.unitPrice() : 0.0);
+        part.setMinStock(request.minStock() != null ? request.minStock() : 5);
         return toResponse(partRepository.save(part));
     }
 
@@ -66,6 +67,7 @@ public class PartService {
         part.setPartNumber(request.partNumber());
         part.setStockQuantity(request.stockQuantity());
         part.setUnitPrice(request.unitPrice() != null ? request.unitPrice() : 0.0);
+        part.setMinStock(request.minStock() != null ? request.minStock() : 5);
         return toResponse(partRepository.save(part));
     }
 
@@ -78,6 +80,6 @@ public class PartService {
     }
 
     private PartResponse toResponse(Part p) {
-        return new PartResponse(p.getId(), p.getName(), p.getPartNumber(), p.getStockQuantity(), p.getUnitPrice());
+        return new PartResponse(p.getId(), p.getName(), p.getPartNumber(), p.getStockQuantity(), p.getUnitPrice(), p.getMinStock());
     }
 }

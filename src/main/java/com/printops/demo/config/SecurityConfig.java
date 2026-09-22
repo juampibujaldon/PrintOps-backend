@@ -59,6 +59,8 @@ public class SecurityConfig {
                 ).permitAll()
                 // Solo los técnicos crean órdenes (US-05: el técnico es quien la ejecuta).
                 .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("TECNICO")
+                // US-08: dashboard de métricas globales, solo para el supervisor (MANAGER).
+                .requestMatchers("/api/metrics/**").hasRole("MANAGER")
                 // Endpoints de negocio: solo usuarios autenticados con rol MANAGER o TECNICO.
                 .requestMatchers(
                     "/api/printers/**",

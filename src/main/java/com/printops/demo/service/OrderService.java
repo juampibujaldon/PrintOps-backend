@@ -10,6 +10,7 @@ import com.printops.demo.repository.StatusHistoryRepository;
 import com.printops.demo.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -59,6 +60,7 @@ public class OrderService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public OrderResponseDTO create(CreateOrderRequest dto, String creatorEmail) {
         Printer printer = printerRepository.findById(dto.printerId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + dto.printerId()));
@@ -143,6 +145,7 @@ public class OrderService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public OrderResponseDTO changeStatus(Long id, StatusChangeRequest request, String role, String email) {
         MaintenanceOrder order = orderRepository.findById(id)
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
