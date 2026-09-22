@@ -5,8 +5,8 @@ import com.printops.demo.dto.*;
 import com.printops.demo.entity.*;
 import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.OrderPartRepository;
-import com.printops.demo.repository.PartRepository;
 import com.printops.demo.repository.PrinterRepository;
+import com.printops.demo.repository.SparePartRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -34,7 +34,7 @@ public class GlobalMetricsService {
 
     private final MaintenanceOrderRepository orderRepository;
     private final OrderPartRepository orderPartRepository;
-    private final PartRepository partRepository;
+    private final SparePartRepository sparePartRepository;
     private final PrinterRepository printerRepository;
 
     // Tarifa horaria del operario para calcular el costo de mano de obra.
@@ -43,11 +43,11 @@ public class GlobalMetricsService {
 
     public GlobalMetricsService(MaintenanceOrderRepository orderRepository,
                                 OrderPartRepository orderPartRepository,
-                                PartRepository partRepository,
+                                SparePartRepository sparePartRepository,
                                 PrinterRepository printerRepository) {
         this.orderRepository = orderRepository;
         this.orderPartRepository = orderPartRepository;
-        this.partRepository = partRepository;
+        this.sparePartRepository = sparePartRepository;
         this.printerRepository = printerRepository;
     }
 
@@ -133,10 +133,11 @@ public class GlobalMetricsService {
                 .toList();
 
         // ── Stock bajo ───────────────────────────────────────────────────────
-        List<LowStockPartDTO> lowStock = partRepository.findLowStock().stream()
+        List<LowStockPartDTO> lowStock = sparePartRepository.findByStockLessThanEqualMinStock().stream()
                 .map(p -> new LowStockPartDTO(
                         p.getId(), p.getName(), p.getPartNumber(),
-                        p.getStockQuantity(), p.getMinStock() != null ? p.getMinStock() : 0))
+                        p.getStock() != null ? p.getStock() : 0,
+                        p.getMinStock() != null ? p.getMinStock() : 0))
                 .toList();
 
         return new DashboardMetricsDTO(

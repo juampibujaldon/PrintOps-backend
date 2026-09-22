@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Pattern;
 
 import java.util.List;
 
-// DTO de entrada para crear una orden de mantenimiento (US-04).
+// DTO de entrada para crear una orden de mantenimiento (US-04 / US-10).
 public record CreateOrderRequest(
         @NotNull(message = "printerId es obligatorio")
         Long printerId,
@@ -17,11 +17,8 @@ public record CreateOrderRequest(
                  message = "type debe ser PREVENTIVE, CORRECTIVE o CALIBRATION")
         String type,
 
-        // Descripción del problema/trabajo. Obligatoria para órdenes correctivas
-        // (se valida en el servicio).
         String description,
 
-        // Tiempo estimado en minutos (lo ingresa el técnico al crear).
         Integer estimatedTimeMinutes,
 
         List<ChecklistItemInput> checklistItems,
@@ -34,10 +31,12 @@ public record CreateOrderRequest(
             boolean na
     ) {}
 
+    // Pieza usada. Si partId es null → pieza externa (externalPart*).
     public record PartInput(
             Long partId,
-            String partNumber,
             @NotNull(message = "quantity es obligatorio") Integer quantity,
-            boolean external
+            String externalPartName,
+            String externalPartNumber,
+            Double externalUnitPrice
     ) {}
 }

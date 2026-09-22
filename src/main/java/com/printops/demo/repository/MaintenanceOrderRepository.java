@@ -39,7 +39,7 @@ public interface MaintenanceOrderRepository extends JpaRepository<MaintenanceOrd
     List<Object[]> countByTypeForPrinter(@Param("printerId") Long printerId);
 
     // Costo total de piezas en órdenes COMPLETED de una impresora.
-    @Query("SELECT COALESCE(SUM(op.quantity * p.unitPrice), 0.0) FROM OrderPart op JOIN op.part p " +
+    @Query("SELECT COALESCE(SUM(op.quantity * p.unitPrice), 0.0) FROM OrderPart op JOIN op.sparePart p " +
             "WHERE op.order.printer.id = :printerId AND op.order.status = com.printops.demo.entity.OrderStatus.COMPLETED")
     Double getTotalPartsCostByPrinter(@Param("printerId") Long printerId);
 
@@ -52,9 +52,9 @@ public interface MaintenanceOrderRepository extends JpaRepository<MaintenanceOrd
     List<Instant> getCorrectiveOrderDates(@Param("printerId") Long printerId);
 
     // Uso agregado de piezas por impresora, ordenado por cantidad desc.
-    @Query("SELECT op.part.id, op.part.name, op.part.partNumber, SUM(op.quantity), SUM(op.quantity * op.part.unitPrice) " +
-            "FROM OrderPart op WHERE op.order.printer.id = :printerId AND op.part IS NOT NULL " +
-            "GROUP BY op.part.id, op.part.name, op.part.partNumber " +
+    @Query("SELECT op.sparePart.id, op.sparePart.name, op.sparePart.partNumber, SUM(op.quantity), SUM(op.quantity * op.sparePart.unitPrice) " +
+            "FROM OrderPart op WHERE op.order.printer.id = :printerId AND op.sparePart IS NOT NULL " +
+            "GROUP BY op.sparePart.id, op.sparePart.name, op.sparePart.partNumber " +
             "ORDER BY SUM(op.quantity) DESC")
     List<Object[]> getPartUsageSummary(@Param("printerId") Long printerId);
 

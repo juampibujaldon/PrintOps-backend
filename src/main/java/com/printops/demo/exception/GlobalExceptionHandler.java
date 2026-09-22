@@ -83,6 +83,13 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", "Datos inválidos", "message", ex.getMessage()));
     }
 
+    // US-10: stock insuficiente al completar una orden → 400 con detalle.
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<Map<String, String>> handleInsufficientStock(InsufficientStockException ex) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", "Stock insuficiente", "message", ex.getMessage()));
+    }
+
     // ERR-03: JSON malformado o tipo incorrecto → 400.
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<Map<String, String>> handleNotReadable(HttpMessageNotReadableException ex) {

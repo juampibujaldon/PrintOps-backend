@@ -149,14 +149,16 @@ public class PrinterHistoryService {
     private OrderHistoryItemDTO toHistoryItem(MaintenanceOrder o) {
         List<OrderHistoryItemDTO.PartUsedDTO> parts = o.getParts().stream()
                 .map(op -> {
-                    double unit = (op.getPart() != null && op.getPart().getUnitPrice() != null)
-                            ? op.getPart().getUnitPrice() : 0.0;
-                    String number = op.getPartNumber() != null
-                            ? op.getPartNumber()
-                            : (op.getPart() != null ? op.getPart().getPartNumber() : null);
+                    SparePart sp = op.getSparePart();
+                    boolean external = sp == null;
+                    double unit = external
+                            ? (op.getExternalUnitPrice() != null ? op.getExternalUnitPrice() : 0.0)
+                            : (sp.getUnitPrice() != null ? sp.getUnitPrice() : 0.0);
+                    String number = external ? op.getExternalPartNumber() : sp.getPartNumber();
+                    String name = external ? op.getExternalPartName() : sp.getName();
                     return new OrderHistoryItemDTO.PartUsedDTO(
-                            op.getPart() != null ? op.getPart().getId() : null,
-                            op.getPart() != null ? op.getPart().getName() : number,
+                            sp != null ? sp.getId() : null,
+                            name != null ? name : number,
                             number,
                             op.getQuantity(),
                             round(unit * op.getQuantity()));

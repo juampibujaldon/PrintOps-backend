@@ -25,10 +25,13 @@ public record OrderResponseDTO(
     public record PartResponse(
             Long id,
             Long partId,
-            String partNumber,
             String partName,
+            String partNumber,
             int quantity,
-            boolean external
+            boolean external,
+            String externalPartName,
+            String externalPartNumber,
+            Double externalUnitPrice
     ) {}
 
     public record PhotoResponse(Long id, String url, String label) {}

@@ -3,8 +3,8 @@ package com.printops.demo.entity;
 
 import jakarta.persistence.*;
 
-// Pieza usada en una orden (US-04). Puede venir del catálogo (part) o ser
-// una "pieza externa" con número de parte libre.
+// Pieza usada en una orden (US-04 / US-10). Puede ser un repuesto del catálogo
+// (sparePart) o una pieza externa (sparePart == null) con datos libres.
 @Entity
 @Table(name = "order_parts")
 public class OrderPart {
@@ -18,18 +18,21 @@ public class OrderPart {
     private MaintenanceOrder order;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "part_id")
-    private Part part;
-
-    // Número de parte libre, usado cuando la pieza no está en el catálogo.
-    @Column
-    private String partNumber;
+    @JoinColumn(name = "spare_part_id")
+    private SparePart sparePart;
 
     @Column(nullable = false)
     private int quantity;
 
-    @Column(nullable = false)
-    private boolean external;
+    // Datos de pieza externa (no en catálogo). Usados solo si sparePart == null.
+    @Column
+    private String externalPartName;
+
+    @Column
+    private String externalPartNumber;
+
+    @Column
+    private Double externalUnitPrice;
 
     public OrderPart() {
     }
@@ -38,12 +41,16 @@ public class OrderPart {
     public void setId(Long id) { this.id = id; }
     public MaintenanceOrder getOrder() { return order; }
     public void setOrder(MaintenanceOrder order) { this.order = order; }
-    public Part getPart() { return part; }
-    public void setPart(Part part) { this.part = part; }
-    public String getPartNumber() { return partNumber; }
-    public void setPartNumber(String partNumber) { this.partNumber = partNumber; }
+    public SparePart getSparePart() { return sparePart; }
+    public void setSparePart(SparePart sparePart) { this.sparePart = sparePart; }
     public int getQuantity() { return quantity; }
     public void setQuantity(int quantity) { this.quantity = quantity; }
-    public boolean isExternal() { return external; }
-    public void setExternal(boolean external) { this.external = external; }
+    public String getExternalPartName() { return externalPartName; }
+    public void setExternalPartName(String externalPartName) { this.externalPartName = externalPartName; }
+    public String getExternalPartNumber() { return externalPartNumber; }
+    public void setExternalPartNumber(String externalPartNumber) { this.externalPartNumber = externalPartNumber; }
+    public Double getExternalUnitPrice() { return externalUnitPrice; }
+    public void setExternalUnitPrice(Double externalUnitPrice) { this.externalUnitPrice = externalUnitPrice; }
+
+    public boolean isExternal() { return sparePart == null; }
 }

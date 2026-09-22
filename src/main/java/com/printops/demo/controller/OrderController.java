@@ -73,6 +73,14 @@ public class OrderController {
         return ResponseEntity.ok(orderService.addPart(id, request));
     }
 
+    // US-10: quitar una pieza usada de la orden (solo si la orden está abierta).
+    @DeleteMapping("/{id}/parts/{partId}")
+    public ResponseEntity<OrderResponseDTO> removePart(
+            @PathVariable Long id,
+            @PathVariable Long partId) {
+        return ResponseEntity.ok(orderService.removePart(id, partId));
+    }
+
     // Adjuntar fotos (hasta 5). Multipart con una o más partes "photos".
     @PostMapping(value = "/{id}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<OrderResponseDTO> addPhotos(

@@ -4,8 +4,8 @@ package com.printops.demo.service;
 import com.printops.demo.dto.*;
 import com.printops.demo.entity.*;
 import com.printops.demo.repository.MaintenanceOrderRepository;
-import com.printops.demo.repository.PartRepository;
 import com.printops.demo.repository.PrinterRepository;
+import com.printops.demo.repository.SparePartRepository;
 import com.printops.demo.repository.StatusHistoryRepository;
 import com.printops.demo.repository.UserRepository;
 import org.slf4j.Logger;
@@ -34,24 +34,27 @@ public class OrderService {
 
     private final MaintenanceOrderRepository orderRepository;
     private final PrinterRepository printerRepository;
-    private final PartRepository partRepository;
+    private final SparePartRepository sparePartRepository;
     private final UserRepository userRepository;
     private final StatusHistoryRepository historyRepository;
     private final NotificationService notificationService;
+    private final SparePartService sparePartService;
     private final String uploadDir = "uploads/orders/";
 
     public OrderService(MaintenanceOrderRepository orderRepository,
                         PrinterRepository printerRepository,
-                        PartRepository partRepository,
+                        SparePartRepository sparePartRepository,
                         UserRepository userRepository,
                         StatusHistoryRepository historyRepository,
-                        NotificationService notificationService) {
+                        NotificationService notificationService,
+                        SparePartService sparePartService) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
-        this.partRepository = partRepository;
+        this.sparePartRepository = sparePartRepository;
         this.userRepository = userRepository;
         this.historyRepository = historyRepository;
         this.notificationService = notificationService;
+        this.sparePartService = sparePartService;
         try {
             Files.createDirectories(Paths.get(uploadDir));
         } catch (IOException e) {
@@ -94,6 +97,8 @@ public class OrderService {
             }
         }
 
+        // US-10: las piezas se registran en la orden pero el stock NO se descuenta
+        // acá; se descuenta al completar la orden (deductStockForOrder).
         if (dto.parts() != null) {
             for (CreateOrderRequest.PartInput input : dto.parts()) {
                 order.addPart(buildOrderPart(input));
@@ -102,10 +107,8 @@ public class OrderService {
 
         MaintenanceOrder saved = orderRepository.save(order);
 
-        // Historial inicial (inmutable): la orden "nace" en PENDING.
         saveHistory(saved.getId(), null, OrderStatus.PENDING, null, creator);
 
-        // Notificación al técnico asignado.
         notificationService.createFor(
                 creator.getId(),
                 "ORDER_CREATED",
@@ -129,7 +132,6 @@ public class OrderService {
         } else {
             orders = orderRepository.findAll();
         }
-        // US-05: las órdenes en REVISIÓN van primero (necesitan acción del manager).
         return orders.stream()
                 .sorted(Comparator
                         .comparing((MaintenanceOrder o) -> o.getStatus() != OrderStatus.IN_REVIEW)
@@ -157,22 +159,25 @@ public class OrderService {
 
         boolean isManager = role != null && role.contains("MANAGER");
 
-        // Validación de transición legal + rol + asignación.
         validateTransition(order, from, to, isManager, actor);
 
-        // Rechazo (IN_REVIEW -> IN_PROGRESS): comentario obligatorio.
         if (from == OrderStatus.IN_REVIEW && to == OrderStatus.IN_PROGRESS
                 && (request.comment() == null || request.comment().isBlank())) {
             throw new IllegalArgumentException("El comentario es obligatorio para rechazar una orden.");
         }
 
+        // US-10: al completar la orden se descuenta el stock de las piezas usadas.
+        // Si falta stock, se lanza InsufficientStockException (400) y la transición
+        // no se persiste (rollback de la transacción).
+        if (to == OrderStatus.COMPLETED) {
+            sparePartService.deductStockForOrder(order.getId());
+        }
+
         order.setStatus(to);
         OrderResponseDTO response = toResponse(orderRepository.save(order));
 
-        // Historial inmutable.
         saveHistory(order.getId(), from, to, blankToNull(request.comment()), actor);
 
-        // Notificaciones por evento (US-05).
         notifyStatusChange(order, from, to, actor, request.comment());
 
         return response;
@@ -193,7 +198,6 @@ public class OrderService {
                 .toList();
     }
 
-    // Reglas de transición (US-05). Devuelve 400 (IllegalArgumentException) si es ilegal.
     private void validateTransition(MaintenanceOrder order, OrderStatus from, OrderStatus to,
                                     boolean isManager, User actor) {
         boolean isAssigned = order.getAssignedTo() != null
@@ -208,7 +212,6 @@ public class OrderService {
                 default -> false;
             };
         } else {
-            // Técnico: solo si es el asignado.
             if (!isAssigned) {
                 throw new IllegalArgumentException("Solo el técnico asignado puede mover esta orden.");
             }
@@ -231,9 +234,6 @@ public class OrderService {
         Long orderId = order.getId();
         String actorName = actor.getEmail();
 
-        // El manager recibe avisos de avance; el técnico recibe avisos de aprobación/rechazo.
-        // (En este modelo 1:1 el manager es quien aprueba; acá notificamos al técnico asignado
-        //  para aprobaciones/rechazos, y dejamos registro para el manager vía el listado.)
         if (to == OrderStatus.IN_PROGRESS && from == OrderStatus.PENDING) {
             notificationService.createFor(null, "ORDER_STARTED",
                     "Orden #" + orderId + " iniciada por " + actorName, orderId);
@@ -269,7 +269,22 @@ public class OrderService {
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
 
         order.addPart(buildOrderPart(new CreateOrderRequest.PartInput(
-                request.partId(), request.partNumber(), request.quantity(), request.external())));
+                request.partId(), request.quantity(),
+                request.externalPartName(), request.externalPartNumber(), request.externalUnitPrice())));
+        return toResponse(orderRepository.save(order));
+    }
+
+    // US-10: quitar una pieza de una orden (solo antes de completarse).
+    @Transactional
+    public OrderResponseDTO removePart(Long orderId, Long partId) {
+        MaintenanceOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + orderId));
+
+        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalArgumentException("No se pueden modificar piezas de una orden cerrada.");
+        }
+
+        order.getParts().removeIf(op -> op.getId().equals(partId));
         return toResponse(orderRepository.save(order));
     }
 
@@ -311,23 +326,16 @@ public class OrderService {
 
     private OrderPart buildOrderPart(CreateOrderRequest.PartInput input) {
         OrderPart op = new OrderPart();
-        int quantity = input.quantity() != null ? input.quantity() : 1;
-        op.setQuantity(quantity);
-        op.setExternal(input.external());
+        op.setQuantity(input.quantity() != null ? input.quantity() : 1);
 
         if (input.partId() != null) {
-            Part part = partRepository.findById(input.partId())
+            SparePart part = sparePartRepository.findById(input.partId())
                     .orElseThrow(() -> new NoSuchElementException("Pieza no encontrada con id " + input.partId()));
-            if (part.getStockQuantity() < quantity) {
-                throw new IllegalArgumentException("Stock insuficiente para la pieza " + part.getName());
-            }
-            part.setStockQuantity(part.getStockQuantity() - quantity);
-            partRepository.save(part);
-            op.setPart(part);
-            op.setPartNumber(part.getPartNumber());
+            op.setSparePart(part);
         } else {
-            op.setExternal(true);
-            op.setPartNumber(blankToNull(input.partNumber()));
+            op.setExternalPartName(blankToNull(input.externalPartName()));
+            op.setExternalPartNumber(blankToNull(input.externalPartNumber()));
+            op.setExternalUnitPrice(input.externalUnitPrice());
         }
         return op;
     }
@@ -354,13 +362,20 @@ public class OrderService {
                 .toList();
 
         List<OrderResponseDTO.PartResponse> parts = o.getParts().stream()
-                .map(p -> new OrderResponseDTO.PartResponse(
-                        p.getId(),
-                        p.getPart() != null ? p.getPart().getId() : null,
-                        p.getPartNumber(),
-                        p.getPart() != null ? p.getPart().getName() : null,
-                        p.getQuantity(),
-                        p.isExternal()))
+                .map(p -> {
+                    SparePart sp = p.getSparePart();
+                    boolean external = sp == null;
+                    return new OrderResponseDTO.PartResponse(
+                            p.getId(),
+                            sp != null ? sp.getId() : null,
+                            sp != null ? sp.getName() : p.getExternalPartName(),
+                            sp != null ? sp.getPartNumber() : p.getExternalPartNumber(),
+                            p.getQuantity(),
+                            external,
+                            p.getExternalPartName(),
+                            p.getExternalPartNumber(),
+                            p.getExternalUnitPrice());
+                })
                 .toList();
 
         List<OrderResponseDTO.PhotoResponse> photos = o.getPhotos().stream()
