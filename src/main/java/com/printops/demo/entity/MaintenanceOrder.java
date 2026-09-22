@@ -45,6 +45,11 @@ public class MaintenanceOrder {
     @Column
     private Integer actualTimeMinutes;
 
+    // Regla de mantenimiento que generó esta orden automáticamente (US-06).
+    // Null para órdenes creadas de forma manual.
+    @Column(name = "maintenance_rule_id")
+    private Long maintenanceRuleId;
+
     @Column(nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ DEFAULT NOW()")
     private Instant createdAt;
 
@@ -107,6 +112,8 @@ public class MaintenanceOrder {
     public void setEstimatedTimeMinutes(Integer estimatedTimeMinutes) { this.estimatedTimeMinutes = estimatedTimeMinutes; }
     public Integer getActualTimeMinutes() { return actualTimeMinutes; }
     public void setActualTimeMinutes(Integer actualTimeMinutes) { this.actualTimeMinutes = actualTimeMinutes; }
+    public Long getMaintenanceRuleId() { return maintenanceRuleId; }
+    public void setMaintenanceRuleId(Long maintenanceRuleId) { this.maintenanceRuleId = maintenanceRuleId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public List<OrderChecklistItem> getChecklistItems() { return checklistItems; }

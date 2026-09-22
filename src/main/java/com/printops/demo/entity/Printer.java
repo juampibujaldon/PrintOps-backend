@@ -43,6 +43,13 @@ public class Printer {
     @Column(nullable = true)
     private LocalDate nextMaintenanceDate;
 
+    // Contadores acumulados de uso (US-06). Alimentan las reglas por horas/gramos.
+    @Column(nullable = false, columnDefinition = "DOUBLE PRECISION DEFAULT 0")
+    private Double totalPrintingHours = 0.0;
+
+    @Column(nullable = false, columnDefinition = "DOUBLE PRECISION DEFAULT 0")
+    private Double totalFilamentGrams = 0.0;
+
     @Column(unique = true, nullable = false)
     private String qrCodeData;
 
@@ -78,6 +85,10 @@ public class Printer {
     public void setLocation(String location) { this.location = location; }
     public LocalDate getNextMaintenanceDate() { return nextMaintenanceDate; }
     public void setNextMaintenanceDate(LocalDate nextMaintenanceDate) { this.nextMaintenanceDate = nextMaintenanceDate; }
+    public Double getTotalPrintingHours() { return totalPrintingHours; }
+    public void setTotalPrintingHours(Double totalPrintingHours) { this.totalPrintingHours = totalPrintingHours; }
+    public Double getTotalFilamentGrams() { return totalFilamentGrams; }
+    public void setTotalFilamentGrams(Double totalFilamentGrams) { this.totalFilamentGrams = totalFilamentGrams; }
     public String getQrCodeData() { return qrCodeData; }
     public void setQrCodeData(String qrCodeData) { this.qrCodeData = qrCodeData; }
 }

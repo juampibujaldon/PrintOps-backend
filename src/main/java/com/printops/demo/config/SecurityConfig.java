@@ -65,7 +65,8 @@ public class SecurityConfig {
                     "/api/orders/**",
                     "/api/parts/**",
                     "/api/notifications/**",
-                    "/api/workspaces/**"
+                    "/api/workspaces/**",
+                    "/api/rules/**"
                 ).hasAnyRole("MANAGER", "TECNICO")
                 .anyRequest().authenticated()
             )

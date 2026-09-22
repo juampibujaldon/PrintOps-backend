@@ -3,6 +3,11 @@ spring:
   application:
     name: PrintOps
 
+  # US-06: habilita la ejecución del scheduler de mantenimiento preventivo.
+  task:
+    scheduling:
+      enabled: true
+
   datasource:
     url: jdbc:postgresql://localhost:5432/printops
     username: printopsadmin
