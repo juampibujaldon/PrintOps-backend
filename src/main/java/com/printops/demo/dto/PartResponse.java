@@ -5,5 +5,6 @@ public record PartResponse(
         Long id,
         String name,
         String partNumber,
-        int stockQuantity
+        int stockQuantity,
+        Double unitPrice
 ) {}

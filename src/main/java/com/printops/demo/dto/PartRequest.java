@@ -15,5 +15,8 @@ public record PartRequest(
 
         @NotNull(message = "stockQuantity es obligatorio")
         @Min(value = 0, message = "stockQuantity no puede ser negativo")
-        Integer stockQuantity
+        Integer stockQuantity,
+
+        // Precio unitario opcional (US-07). Default 0.0 si no se envía.
+        Double unitPrice
 ) {}

@@ -28,22 +28,23 @@ public class DataSeeder implements CommandLineRunner {
         if (partRepository.count() > 0) {
             return;
         }
-        seed("Boquilla 0.4mm", "NOZ-04", 20);
-        seed("Boquilla 0.6mm", "NOZ-06", 15);
-        seed("Termistor NTC 100K", "THR-NTC100", 12);
-        seed("Cartucho calefactor 40W", "HTR-40W", 10);
-        seed("Correa GT2 (metro)", "BLT-GT2", 30);
-        seed("Rodamiento 608ZZ", "BRG-608ZZ", 50);
-        seed("Cama PEI magnética", "BED-PEI", 8);
-        seed("Extrusor MK8 completo", "EXT-MK8", 6);
+        seed("Boquilla 0.4mm", "NOZ-04", 20, 12.5);
+        seed("Boquilla 0.6mm", "NOZ-06", 15, 14.0);
+        seed("Termistor NTC 100K", "THR-NTC100", 12, 8.9);
+        seed("Cartucho calefactor 40W", "HTR-40W", 10, 18.5);
+        seed("Correa GT2 (metro)", "BLT-GT2", 30, 4.2);
+        seed("Rodamiento 608ZZ", "BRG-608ZZ", 50, 1.8);
+        seed("Cama PEI magnética", "BED-PEI", 8, 45.0);
+        seed("Extrusor MK8 completo", "EXT-MK8", 6, 89.0);
         log.info("Catálogo de piezas inicializado con datos de ejemplo.");
     }
 
-    private void seed(String name, String partNumber, int stock) {
+    private void seed(String name, String partNumber, int stock, double unitPrice) {
         Part p = new Part();
         p.setName(name);
         p.setPartNumber(partNumber);
         p.setStockQuantity(stock);
+        p.setUnitPrice(unitPrice);
         partRepository.save(p);
     }
 }
