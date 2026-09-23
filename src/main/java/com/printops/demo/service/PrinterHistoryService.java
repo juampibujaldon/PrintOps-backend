@@ -91,7 +91,7 @@ public class PrinterHistoryService {
         return calculateMetrics(printerId);
     }
 
-    private PrinterMetricsDTO calculateMetrics(Long printerId) {
+    public PrinterMetricsDTO calculateMetrics(Long printerId) {
         int totalInterventions = (int) orderRepository.countByPrinterIdAndWorkspaceIdAndStatus(printerId, wsId(), OrderStatus.COMPLETED);
 
         Double totalCost = orderRepository.getTotalPartsCostByPrinter(printerId, wsId());

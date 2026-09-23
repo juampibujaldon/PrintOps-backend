@@ -5,8 +5,10 @@ import com.printops.demo.dto.CreatePrinterRequest;
 import com.printops.demo.dto.PrinterResponseDTO;
 import com.printops.demo.entity.Printer;
 import com.printops.demo.entity.PrinterStatus;
+import com.printops.demo.entity.User;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.security.TenantContext;
+import com.printops.demo.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -30,10 +32,13 @@ public class PrinterService {
     private static final Logger log = LoggerFactory.getLogger(PrinterService.class);
 
     private final PrinterRepository printerRepository;
+    private final UserRepository userRepository;
     private final String uploadDir = "uploads/printers/";
 
-    public PrinterService(PrinterRepository printerRepository) {
+    public PrinterService(PrinterRepository printerRepository, UserRepository userRepository) {
         this.printerRepository = printerRepository;
+        this.userRepository = userRepository;
+        // Ensure upload directory exists
         try {
             Files.createDirectories(Paths.get(uploadDir));
         } catch (IOException e) {
@@ -47,13 +52,17 @@ public class PrinterService {
     }
 
     @Transactional
-    public PrinterResponseDTO createPrinter(CreatePrinterRequest dto, MultipartFile photo) {
+    public PrinterResponseDTO createPrinter(CreatePrinterRequest dto, MultipartFile photo, String creatorEmail) {
         log.info("Creando impresora: serialNumber={}, brand={}, model={}",
                 dto.serialNumber(), dto.brand(), dto.model());
 
         if (printerRepository.findBySerialNumberAndWorkspaceId(dto.serialNumber(), wsId()).isPresent()) {
             throw new IllegalArgumentException("El número de serie ya está registrado.");
         }
+
+        // El workspace de la impresora se hereda del usuario autenticado (US-historial).
+        User creator = userRepository.findByEmail(creatorEmail)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
 
         Printer printer = new Printer();
         printer.setBrand(dto.brand());
@@ -64,6 +73,7 @@ public class PrinterService {
         printer.setName(blankToNull(dto.name()));
         printer.setLocation(blankToNull(dto.location()));
         printer.setNextMaintenanceDate(dto.nextMaintenanceDate());
+        printer.setWatts(dto.watts());
         printer.setWorkspaceId(wsId());
 
         printer.setQrCodeData("printops://printer/" + dto.serialNumber());
@@ -130,7 +140,9 @@ public class PrinterService {
                 p.getLocation(),
                 p.getNextMaintenanceDate(),
                 p.getPhotoUrl(),
-                p.getQrCodeData()
+                p.getQrCodeData(),
+                p.getTotalPrintingHours(),
+                p.getWatts()
         );
     }
 

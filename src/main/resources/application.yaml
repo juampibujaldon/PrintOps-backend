@@ -16,8 +16,8 @@ spring:
 
   datasource:
     url: jdbc:postgresql://localhost:5432/printops
-    username: printopsadmin
-    password: ${DB_PASSWORD}
+    username: printops
+    password: ${DB_PASSWORD:GoodNews}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -40,7 +40,7 @@ spring:
 
 jwt:
   # Clave base64 de al menos 256 bits para HMAC-SHA256 (desde variable de entorno).
-  secret: ${JWT_SECRET}
+  secret: ${JWT_SECRET:a_very_long_super_secret_key_for_jwt_signing_which_needs_to_be_256_bits}
   expiration: ${JWT_EXPIRATION:900000}  # 15 minutos en ms
   refresh-expiration: 604800000         # 7 días en ms
   refresh-expiration-remember: 2592000000  # 30 días en ms
@@ -54,9 +54,13 @@ app:
   metrics:
     # Tarifa horaria del operario para el costo de mano de obra del dashboard (US-08).
     operator-hourly-rate: ${METRICS_OPERATOR_HOURLY_RATE:20.0}
+  firebase:
+    # Ruta al service account JSON de Firebase Admin (notificaciones push, US-05).
+    # Si no se define, el push queda deshabilitado y solo funcionan las notificaciones in-app.
+    service-account-path: ${FIREBASE_SERVICE_ACCOUNT_PATH:}
 
 resend:
   # API key de Resend (no commitear el valor real; usar variable de entorno).
-  api-key: ${RESEND_API_KEY:}
+  api-key: ${re_FEAXDNmg_MyaSKi2Rh5vQkJeLHvsk8tBp:}
   # Remitente. Para pruebas podés usar el dominio de Resend "onboarding@resend.dev".
   from: ${RESEND_FROM:PrintOps <onboarding@resend.dev>}

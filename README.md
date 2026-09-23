@@ -20,7 +20,7 @@ API REST del sistema de gestión de impresoras 3D **PrintOps**, construida con *
 ## Prerrequisitos
 
 - **Java 21** — [Descargar](https://adoptium.net/)
-- **PostgreSQL 14+** — [Descargar](https://www.postgresql.org/download/)
+- **PostgreSQL 15.19-1-+** — [Descargar](https://www.postgresql.org/download/)
 - **Git**
 
 ---
@@ -32,8 +32,8 @@ Creá la base de datos antes de levantar el servidor:
 ```sql
 -- Conectate a psql y ejecutá:
 CREATE DATABASE printops;
-CREATE USER tu_usuario WITH PASSWORD 'tu_contraseña';
-GRANT ALL PRIVILEGES ON DATABASE printops TO tu_usuario;
+CREATE USER printopsadmin WITH PASSWORD 'printops1234';
+GRANT ALL PRIVILEGES ON DATABASE printops TO printopsadmin;
 ```
 
 > **Nota:** El esquema de tablas se genera automáticamente al iniciar la app (`ddl-auto: update`).

@@ -50,6 +50,11 @@ public class User {
     @Column(name = "reset_token_expiry")
     private Instant resetTokenExpiry;
 
+    // Token de Firebase Cloud Messaging del dispositivo (US-05).
+    // Lo registra el frontend vía POST /api/auth/fcm-token para recibir push.
+    @Column(name = "fcm_token")
+    private String fcmToken;
+
     @PrePersist
     protected void onCreate() {
         // FIX 5: no forzar `enabled = true`. El default lo da el inicializador del
@@ -90,4 +95,7 @@ public class User {
     public void setResetToken(String resetToken) { this.resetToken = resetToken; }
     public Instant getResetTokenExpiry() { return resetTokenExpiry; }
     public void setResetTokenExpiry(Instant resetTokenExpiry) { this.resetTokenExpiry = resetTokenExpiry; }
+
+    public String getFcmToken() { return fcmToken; }
+    public void setFcmToken(String fcmToken) { this.fcmToken = fcmToken; }
 }

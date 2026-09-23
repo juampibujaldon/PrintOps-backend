@@ -47,6 +47,7 @@ public class DataSeeder implements CommandLineRunner {
         p.setStock(stock);
         p.setMinStock(minStock);
         p.setUnitPrice(unitPrice);
+        p.setWorkspaceId(1L);
         sparePartRepository.save(p);
     }
 }

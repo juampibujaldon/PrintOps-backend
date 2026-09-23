@@ -29,6 +29,10 @@ dependencies {
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
+	// Generación de PDF (US-11). OpenPDF: LGPL/MPL, fork de iText sin copyleft AGPL.
+	implementation("com.github.librepdf:openpdf:1.3.43")
+	// Notificaciones push con Firebase Cloud Messaging (US-05).
+	implementation("com.google.firebase:firebase-admin:9.10.0")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")

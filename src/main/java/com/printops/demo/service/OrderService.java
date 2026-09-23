@@ -40,6 +40,8 @@ public class OrderService {
     private final StatusHistoryRepository historyRepository;
     private final NotificationService notificationService;
     private final SparePartService sparePartService;
+    private final StatusTransitionValidator statusTransitionValidator;
+    private final FcmService fcmService;
     private final String uploadDir = "uploads/orders/";
 
     public OrderService(MaintenanceOrderRepository orderRepository,
@@ -48,7 +50,9 @@ public class OrderService {
                         UserRepository userRepository,
                         StatusHistoryRepository historyRepository,
                         NotificationService notificationService,
-                        SparePartService sparePartService) {
+                        SparePartService sparePartService,
+                        StatusTransitionValidator statusTransitionValidator,
+                        FcmService fcmService) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
         this.sparePartRepository = sparePartRepository;
@@ -56,6 +60,8 @@ public class OrderService {
         this.historyRepository = historyRepository;
         this.notificationService = notificationService;
         this.sparePartService = sparePartService;
+        this.statusTransitionValidator = statusTransitionValidator;
+        this.fcmService = fcmService;
         try {
             Files.createDirectories(Paths.get(uploadDir));
         } catch (IOException e) {
@@ -154,7 +160,7 @@ public class OrderService {
 
     @Transactional
     @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
-    public OrderResponseDTO changeStatus(Long id, StatusChangeRequest request, String role, String email) {
+    public OrderResponseDTO changeStatus(Long id, StatusChangeRequest request, String email) {
         MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
         User actor = userRepository.findByEmail(email)
@@ -163,9 +169,11 @@ public class OrderService {
         OrderStatus from = order.getStatus();
         OrderStatus to = parseStatus(request.newStatus());
 
-        boolean isManager = role != null && role.contains("MANAGER");
+        Long assignedId = order.getAssignedTo() != null ? order.getAssignedTo().getId() : null;
 
-        validateTransition(order, from, to, isManager, actor);
+        
+        // Validación de transición legal + rol + asignación (400/403).
+        statusTransitionValidator.validate(from, to, actor.getRole(), assignedId, actor.getId());
 
         if (from == OrderStatus.IN_REVIEW && to == OrderStatus.IN_PROGRESS
                 && (request.comment() == null || request.comment().isBlank())) {
@@ -184,6 +192,7 @@ public class OrderService {
 
         saveHistory(order.getId(), from, to, blankToNull(request.comment()), actor);
 
+        // Notificaciones in-app + push por evento (US-05).
         notifyStatusChange(order, from, to, actor, request.comment());
 
         return response;
@@ -200,6 +209,7 @@ public class OrderService {
                         h.getComment(),
                         h.getChangedBy() != null ? h.getChangedBy().getId() : null,
                         h.getChangedBy() != null ? h.getChangedBy().getEmail() : null,
+                        h.getChangedBy() != null ? h.getChangedBy().getRole().name() : null,
                         h.getChangedAt()))
                 .toList();
     }
@@ -236,27 +246,43 @@ public class OrderService {
 
     private void notifyStatusChange(MaintenanceOrder order, OrderStatus from, OrderStatus to,
                                     User actor, String comment) {
-        Long assignedId = order.getAssignedTo() != null ? order.getAssignedTo().getId() : null;
+        User manager = findManagerForOrder(order);
+        User assigned = order.getAssignedTo();
+        Long assignedId = assigned != null ? assigned.getId() : null;
         Long orderId = order.getId();
         String actorName = actor.getEmail();
 
         if (to == OrderStatus.IN_PROGRESS && from == OrderStatus.PENDING) {
-            notificationService.createFor(null, "ORDER_STARTED",
-                    "Orden #" + orderId + " iniciada por " + actorName, orderId);
+            notify(manager, "ORDER_STARTED", "Orden #" + orderId + " iniciada por " + actorName, orderId,
+                    "Orden iniciada", "Orden #" + orderId + " iniciada por " + actorName);
         } else if (to == OrderStatus.IN_REVIEW) {
-            notificationService.createFor(null, "ORDER_REVIEW",
-                    "Orden #" + orderId + " lista para revisión ✓", orderId);
+            notify(manager, "ORDER_REVIEW", "Orden #" + orderId + " lista para revisión ✓", orderId,
+                    "Lista para revisión ✓", "Orden #" + orderId + " lista para tu revisión");
         } else if (to == OrderStatus.COMPLETED) {
-            if (assignedId != null) {
-                notificationService.createFor(assignedId, "ORDER_COMPLETED",
-                        "Orden #" + orderId + " aprobada y cerrada ✓", orderId);
-            }
+            notify(assigned, "ORDER_COMPLETED", "Orden #" + orderId + " aprobada y cerrada ✓", orderId,
+                    "Orden aprobada ✓", "Orden #" + orderId + " fue aprobada y cerrada");
         } else if (to == OrderStatus.IN_PROGRESS && from == OrderStatus.IN_REVIEW) {
-            if (assignedId != null) {
-                notificationService.createFor(assignedId, "ORDER_REJECTED",
-                        "Orden #" + orderId + " rechazada — ver comentario", orderId);
-            }
+            notify(assigned, "ORDER_REJECTED", "Orden #" + orderId + " rechazada — ver comentario", orderId,
+                    "Orden rechazada", "Orden #" + orderId + " fue rechazada — ver comentario");
         }
+    }
+
+    // Crea la notificación in-app y, si el destinatario tiene token FCM, el push.
+    private void notify(User recipient, String type, String message, Long orderId,
+                        String pushTitle, String pushBody) {
+        Long recipientUserId = recipient != null ? recipient.getId() : null;
+        notificationService.createFor(recipientUserId, type, message, orderId);
+        if (recipient != null && recipient.getFcmToken() != null) {
+            fcmService.sendPush(recipient.getFcmToken(), pushTitle, pushBody, orderId);
+        }
+    }
+
+    // El supervisor es el MANAGER del workspace del técnico asignado a la orden.
+    private User findManagerForOrder(MaintenanceOrder order) {
+        Long workspaceId = order.getAssignedTo() != null ? order.getAssignedTo().getWorkspaceId() : null;
+        if (workspaceId == null) return null;
+        List<User> managers = userRepository.findByRoleAndWorkspaceId(Role.MANAGER, workspaceId);
+        return managers.isEmpty() ? null : managers.get(0);
     }
 
     private void saveHistory(Long orderId, OrderStatus from, OrderStatus to, String comment, User actor) {

@@ -124,6 +124,15 @@ public class AuthController {
         return ResponseEntity.ok(authService.getSessions(userDetails.getUsername()));
     }
 
+    // Registra el token de Firebase Cloud Messaging del dispositivo (US-05).
+    @PostMapping("/fcm-token")
+    public ResponseEntity<Map<String, String>> registerFcmToken(
+            @Valid @RequestBody FcmTokenRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        authService.registerFcmToken(userDetails.getUsername(), request.token());
+        return ResponseEntity.ok(Map.of("message", "Token de notificaciones registrado"));
+    }
+
     @DeleteMapping("/sessions/{deviceId}")
     public ResponseEntity<Map<String, String>> revokeSession(
             @PathVariable String deviceId,

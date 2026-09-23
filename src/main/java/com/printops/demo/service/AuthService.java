@@ -271,8 +271,7 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public List<SessionInfo> getSessions(String email) {
-        User user = userRepository.findByEmail(email)
+    public List<SessionInfo> getSessions(String email) {        User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Usuario no encontrado"));
 
         return refreshTokenRepository
@@ -287,6 +286,15 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Usuario no encontrado"));
         refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
+    }
+
+    // Registra el token FCM del dispositivo para recibir notificaciones push (US-05).
+    @Transactional
+    public void registerFcmToken(String email, String token) {
+        userRepository.findByEmail(email).ifPresent(user -> {
+            user.setFcmToken(token);
+            userRepository.save(user);
+        });
     }
 
     // Limpieza automática cada hora

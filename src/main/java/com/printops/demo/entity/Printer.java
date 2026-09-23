@@ -39,6 +39,12 @@ public class Printer {
     @Column(nullable = true)
     private String location;
 
+    // Workspace al que pertenece la impresora (US-historial). Se setea al crear
+    // desde el usuario autenticado y habilita el control de acceso por workspace.
+    // Null en impresoras legadas: en ese caso el acceso queda abierto a cualquier rol.
+    @Column(name = "workspace_id", nullable = true)
+    private Long workspaceId;
+
     // Fecha del próximo mantenimiento programado (FIX 4). Opcional.
     @Column(nullable = true)
     private LocalDate nextMaintenanceDate;
@@ -50,9 +56,10 @@ public class Printer {
     @Column(nullable = false, columnDefinition = "DOUBLE PRECISION DEFAULT 0")
     private Double totalFilamentGrams = 0.0;
 
-    // FIX 3: aislación multi-tenant. Cada impresora pertenece a un workspace.
-    @Column(name = "workspace_id", nullable = false)
-    private Long workspaceId;
+    // Potencia nominal en watts (US-11). Permite autocompletar el cálculo de energía.
+    @Column(nullable = true)
+    private Double watts;
+    
 
     @Column(unique = true, nullable = false)
     private String qrCodeData;
@@ -92,9 +99,11 @@ public class Printer {
     public Double getTotalPrintingHours() { return totalPrintingHours; }
     public void setTotalPrintingHours(Double totalPrintingHours) { this.totalPrintingHours = totalPrintingHours; }
     public Double getTotalFilamentGrams() { return totalFilamentGrams; }
-    public void setTotalFilamentGrams(Double totalFilamentGrams) { this.totalFilamentGrams = totalFilamentGrams; }
     public Long getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
+    public void setTotalFilamentGrams(Double totalFilamentGrams) { this.totalFilamentGrams = totalFilamentGrams; }
+    public Double getWatts() { return watts; }
+    public void setWatts(Double watts) { this.watts = watts; }
     public String getQrCodeData() { return qrCodeData; }
     public void setQrCodeData(String qrCodeData) { this.qrCodeData = qrCodeData; }
 }

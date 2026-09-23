@@ -11,5 +11,6 @@ public record StatusHistoryResponse(
         String comment,
         Long changedById,
         String changedByName,
+        String changedByRole,
         Instant changedAt
 ) {}

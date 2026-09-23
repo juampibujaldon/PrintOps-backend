@@ -35,5 +35,8 @@ public record CreatePrinterRequest(
         String location,
 
         // Próximo mantenimiento (FIX 4): opcional al momento del alta.
-        LocalDate nextMaintenanceDate
+        LocalDate nextMaintenanceDate,
+
+        // Potencia nominal en watts (US-11): opcional, para el cálculo de energía.
+        Double watts
 ) {}

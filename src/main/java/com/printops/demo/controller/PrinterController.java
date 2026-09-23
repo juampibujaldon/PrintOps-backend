@@ -2,14 +2,23 @@
 package com.printops.demo.controller;
 
 import com.printops.demo.dto.CreatePrinterRequest;
+import com.printops.demo.dto.HistoryFilters;
 import com.printops.demo.dto.NextMaintenanceDateRequest;
+import com.printops.demo.dto.PartUsageSummaryDTO;
+import com.printops.demo.dto.PrinterHistoryDTO;
+import com.printops.demo.dto.PrinterMetricsDTO;
 import com.printops.demo.dto.PrinterResponseDTO;
+import com.printops.demo.entity.OrderType;
+import com.printops.demo.service.PrinterHistoryService;
 import com.printops.demo.service.PrinterService;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -23,9 +32,11 @@ public class PrinterController {
     private static final Logger log = LoggerFactory.getLogger(PrinterController.class);
 
     private final PrinterService printerService;
+    private final PrinterHistoryService printerHistoryService;
 
-    public PrinterController(PrinterService printerService) {
+    public PrinterController(PrinterService printerService, PrinterHistoryService printerHistoryService) {
         this.printerService = printerService;
+        this.printerHistoryService = printerHistoryService;
     }
 
     // ERR-03: consumes explícito multipart/form-data. El part "printer" es JSON
@@ -33,10 +44,11 @@ public class PrinterController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PrinterResponseDTO> createPrinter(
             @Valid @RequestPart("printer") CreatePrinterRequest printer,
-            @RequestPart(value = "photo", required = false) MultipartFile photo) {
+            @RequestPart(value = "photo", required = false) MultipartFile photo,
+            @AuthenticationPrincipal UserDetails userDetails) {
 
         log.info("POST /api/printers: serialNumber={}", printer.serialNumber());
-        PrinterResponseDTO saved = printerService.createPrinter(printer, photo);
+        PrinterResponseDTO saved = printerService.createPrinter(printer, photo, userDetails.getUsername());
         return ResponseEntity.ok(saved);
     }
 

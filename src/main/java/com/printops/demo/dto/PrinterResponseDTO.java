@@ -16,5 +16,7 @@ public record PrinterResponseDTO(
         String location,
         LocalDate nextMaintenanceDate,
         String photoUrl,
-        String qrCodeData
+        String qrCodeData,
+        Double totalPrintingHours,
+        Double watts
 ) {}

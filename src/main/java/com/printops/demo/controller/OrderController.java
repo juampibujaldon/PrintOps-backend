@@ -8,7 +8,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -56,8 +55,7 @@ public class OrderController {
             @PathVariable Long id,
             @Valid @RequestBody StatusChangeRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
-        String role = roleOf(userDetails);
-        return ResponseEntity.ok(orderService.changeStatus(id, request, role, userDetails.getUsername()));
+        return ResponseEntity.ok(orderService.changeStatus(id, request, userDetails.getUsername()));
     }
 
     // Historial inmutable de cambios de estado.
@@ -87,13 +85,5 @@ public class OrderController {
             @PathVariable Long id,
             @RequestPart(value = "photos", required = false) List<MultipartFile> photos) {
         return ResponseEntity.ok(orderService.addPhotos(id, photos));
-    }
-
-    private String roleOf(UserDetails userDetails) {
-        return userDetails != null
-                ? userDetails.getAuthorities().stream()
-                        .map(GrantedAuthority::getAuthority)
-                        .findFirst().orElse("")
-                : "";
     }
 }
