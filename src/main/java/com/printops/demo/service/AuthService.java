@@ -101,7 +101,7 @@ public class AuthService {
         failedAttempts.remove(ip);
         lockedUntil.remove(ip);
 
-        String accessToken = jwtService.generateAccessToken(email, user.getRole().name());
+        String accessToken = jwtService.generateAccessToken(email, user.getRole().name(), user.getWorkspaceId());
 
         // Revocar sesión anterior del mismo dispositivo si existe
         refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
@@ -216,7 +216,7 @@ public class AuthService {
         }
 
         User user = refreshToken.getUser();
-        String newAccessToken = jwtService.generateAccessToken(user.getEmail(), user.getRole().name());
+        String newAccessToken = jwtService.generateAccessToken(user.getEmail(), user.getRole().name(), user.getWorkspaceId());
 
         return buildAuthResponse(newAccessToken, rawRefreshToken, user);
     }

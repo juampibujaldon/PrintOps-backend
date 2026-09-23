@@ -5,6 +5,7 @@ import com.printops.demo.dto.*;
 import com.printops.demo.entity.*;
 import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.PrinterRepository;
+import com.printops.demo.security.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,10 +33,14 @@ public class PrinterHistoryService {
         this.printerRepository = printerRepository;
     }
 
+    private Long wsId() {
+        return TenantContext.getCurrentWorkspaceId();
+    }
+
     // ── Historial paginado con filtros ───────────────────────────────────────
     @Transactional(readOnly = true)
     public PrinterHistoryDTO getHistory(Long printerId, HistoryFilters filters) {
-        Printer printer = printerRepository.findById(printerId)
+        Printer printer = printerRepository.findByIdAndWorkspaceId(printerId, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + printerId));
 
         List<MaintenanceOrder> all = loadOrders(printerId, filters);
@@ -58,7 +63,7 @@ public class PrinterHistoryService {
         boolean hasDate = f.from() != null || f.to() != null;
 
         if (!hasType && !hasDate) {
-            return orderRepository.findByPrinterIdOrderByCreatedAtDesc(printerId);
+            return orderRepository.findByPrinterIdAndWorkspaceIdOrderByCreatedAtDesc(printerId, wsId());
         }
 
         Instant fromI = null;
@@ -71,13 +76,13 @@ public class PrinterHistoryService {
         }
 
         if (hasType && hasDate) {
-            return orderRepository.findByPrinterIdAndTypeAndCreatedAtBetweenOrderByCreatedAtDesc(
-                    printerId, f.type(), fromI, toI);
+            return orderRepository.findByPrinterIdAndWorkspaceIdAndTypeAndCreatedAtBetweenOrderByCreatedAtDesc(
+                    printerId, wsId(), f.type(), fromI, toI);
         }
         if (hasType) {
-            return orderRepository.findByPrinterIdAndTypeOrderByCreatedAtDesc(printerId, f.type());
+            return orderRepository.findByPrinterIdAndWorkspaceIdAndTypeOrderByCreatedAtDesc(printerId, wsId(), f.type());
         }
-        return orderRepository.findByPrinterIdAndCreatedAtBetweenOrderByCreatedAtDesc(printerId, fromI, toI);
+        return orderRepository.findByPrinterIdAndWorkspaceIdAndCreatedAtBetweenOrderByCreatedAtDesc(printerId, wsId(), fromI, toI);
     }
 
     // ── Métricas agregadas ───────────────────────────────────────────────────
@@ -87,13 +92,13 @@ public class PrinterHistoryService {
     }
 
     private PrinterMetricsDTO calculateMetrics(Long printerId) {
-        int totalInterventions = (int) orderRepository.countByPrinterIdAndStatus(printerId, OrderStatus.COMPLETED);
+        int totalInterventions = (int) orderRepository.countByPrinterIdAndWorkspaceIdAndStatus(printerId, wsId(), OrderStatus.COMPLETED);
 
-        Double totalCost = orderRepository.getTotalPartsCostByPrinter(printerId);
+        Double totalCost = orderRepository.getTotalPartsCostByPrinter(printerId, wsId());
         if (totalCost == null) totalCost = 0.0;
 
         int preventive = 0, corrective = 0, calibration = 0;
-        for (Object[] row : orderRepository.countByTypeForPrinter(printerId)) {
+        for (Object[] row : orderRepository.countByTypeForPrinter(printerId, wsId())) {
             OrderType type = (OrderType) row[0];
             int count = ((Number) row[1]).intValue();
             switch (type) {
@@ -103,11 +108,11 @@ public class PrinterHistoryService {
             }
         }
 
-        Double mtbf = computeMtbf(orderRepository.getCorrectiveOrderDates(printerId));
+        Double mtbf = computeMtbf(orderRepository.getCorrectiveOrderDates(printerId, wsId()));
 
         String mostPart = null;
         int mostCount = 0;
-        List<Object[]> usage = orderRepository.getPartUsageSummary(printerId);
+        List<Object[]> usage = orderRepository.getPartUsageSummary(printerId, wsId());
         if (!usage.isEmpty()) {
             Object[] first = usage.get(0);
             mostPart = (String) first[1];
@@ -135,7 +140,7 @@ public class PrinterHistoryService {
     // ── Uso de piezas (para el endpoint /history/parts) ──────────────────────
     @Transactional(readOnly = true)
     public List<PartUsageSummaryDTO> getPartsUsage(Long printerId) {
-        return orderRepository.getPartUsageSummary(printerId).stream()
+        return orderRepository.getPartUsageSummary(printerId, wsId()).stream()
                 .map(row -> new PartUsageSummaryDTO(
                         (Long) row[0],
                         (String) row[1],

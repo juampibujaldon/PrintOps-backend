@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.*;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.security.authentication.*;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -88,6 +89,21 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleInsufficientStock(InsufficientStockException ex) {
         return ResponseEntity.badRequest()
                 .body(Map.of("error", "Stock insuficiente", "message", ex.getMessage()));
+    }
+
+    // FIX 4: concurrencia en stock (optimistic lock) → 409 para que el frontend
+    // avise "el stock fue modificado por otro proceso".
+    @ExceptionHandler(StockConcurrencyException.class)
+    public ResponseEntity<Map<String, String>> handleStockConcurrency(StockConcurrencyException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "Conflicto de concurrencia", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<Map<String, String>> handleOptimisticLock(ObjectOptimisticLockingFailureException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("error", "Conflicto de concurrencia",
+                        "message", "El registro fue modificado por otro proceso. Recargá e intentá de nuevo."));
     }
 
     // ERR-03: JSON malformado o tipo incorrecto → 400.

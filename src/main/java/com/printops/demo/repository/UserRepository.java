@@ -16,4 +16,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     // US-06: técnicos a los que se notifica al dispararse una regla.
     List<User> findByRole(Role role);
+
+    // FIX 8: supervisores (MANAGER) de un workspace, para alertas de stock bajo.
+    List<User> findByRoleAndWorkspaceId(Role role, Long workspaceId);
 }

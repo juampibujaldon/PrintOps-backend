@@ -19,10 +19,11 @@ public class JwtService {
     @Value("${jwt.expiration}")
     private long expiration;
 
-    public String generateAccessToken(String email, String role) {
+    public String generateAccessToken(String email, String role, Long workspaceId) {
         return Jwts.builder()
                 .subject(email)
                 .claim("role", role)
+                .claim("workspaceId", workspaceId)
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith(getSigningKey())
@@ -43,6 +44,12 @@ public class JwtService {
 
     public String extractEmail(String token) {
         return getClaims(token).getSubject();
+    }
+
+    // FIX 3: workspaceId incluido en el JWT al momento del login.
+    public Long extractWorkspaceId(String token) {
+        Object ws = getClaims(token).get("workspaceId");
+        return ws != null ? ((Number) ws).longValue() : null;
     }
 
     public Date extractExpiration(String token) {

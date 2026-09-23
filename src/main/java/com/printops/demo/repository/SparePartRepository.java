@@ -4,27 +4,26 @@ package com.printops.demo.repository;
 import com.printops.demo.entity.SparePart;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
 
 public interface SparePartRepository extends JpaRepository<SparePart, Long> {
 
-    List<SparePart> findAllByOrderByNameAsc();
+    // FIX 3: todas las consultas filtradas por workspace.
+    List<SparePart> findByWorkspaceIdOrderByNameAsc(Long workspaceId);
 
-    List<SparePart> findByNameContainingIgnoreCaseOrPartNumberContainingIgnoreCase(String name, String partNumber);
-
-    List<SparePart> findByCategory(String category);
+    Optional<SparePart> findByIdAndWorkspaceId(Long id, Long workspaceId);
 
     Optional<SparePart> findByPartNumber(String partNumber);
 
     boolean existsByPartNumber(String partNumber);
 
-    // Stock bajo: stock <= minStock (comparación entre columnas → JPQL).
-    @Query("SELECT p FROM SparePart p WHERE p.stock <= p.minStock ORDER BY p.name ASC")
-    List<SparePart> findByStockLessThanEqualMinStock();
+    @Query("SELECT p FROM SparePart p WHERE p.workspaceId = :workspaceId AND p.stock <= p.minStock ORDER BY p.name ASC")
+    List<SparePart> findLowStock(@Param("workspaceId") Long workspaceId);
 
-    // Categorías distintas registradas.
-    @Query("SELECT DISTINCT p.category FROM SparePart p WHERE p.category IS NOT NULL AND p.category <> '' ORDER BY p.category ASC")
-    List<String> findDistinctCategories();
+    @Query("SELECT DISTINCT p.category FROM SparePart p WHERE p.workspaceId = :workspaceId " +
+            "AND p.category IS NOT NULL AND p.category <> '' ORDER BY p.category ASC")
+    List<String> findDistinctCategories(@Param("workspaceId") Long workspaceId);
 }

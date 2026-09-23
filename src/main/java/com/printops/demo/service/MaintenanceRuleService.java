@@ -11,8 +11,10 @@ import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.MaintenanceRuleRepository;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.repository.UserRepository;
+import com.printops.demo.security.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +41,10 @@ public class MaintenanceRuleService {
     private final UserRepository userRepository;
     private final NotificationService notificationService;
 
+    // FIX 7: umbral (%) para alerta previa en reglas por horas/gramos.
+    @Value("${app.maintenance.alert-threshold-percent:10.0}")
+    private double alertThresholdPercent;
+
     // Jackson 3 (Spring Boot 4). Instancia propia para serializar el checklist.
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -54,9 +60,13 @@ public class MaintenanceRuleService {
         this.notificationService = notificationService;
     }
 
+    private Long wsId() {
+        return TenantContext.getCurrentWorkspaceId();
+    }
+
     @Transactional
     public MaintenanceRuleDTO createRule(CreateRuleRequest req, User user) {
-        Printer printer = printerRepository.findById(req.printerId())
+        Printer printer = printerRepository.findByIdAndWorkspaceId(req.printerId(), wsId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + req.printerId()));
 
         // Una sola regla activa por triggerType e impresora para no duplicar órdenes.
@@ -73,6 +83,7 @@ public class MaintenanceRuleService {
         rule.setMaintenanceType(req.maintenanceType());
         rule.setChecklistTemplate(serializeChecklist(req.checklistItems()));
         rule.setActive(true);
+        rule.setWorkspaceId(wsId());
         rule.setCreatedBy(user);
 
         MaintenanceRule saved = ruleRepository.save(rule);
@@ -118,9 +129,12 @@ public class MaintenanceRuleService {
             return;
         }
 
-        // Alerta previa: solo aplica a reglas por tiempo (concepto de "días").
+        // Alerta previa: tiempo (días) o progreso (horas/gramos).
         if (rule.getTriggerType() == TriggerType.TIME_BASED) {
             maybeSendPreAlert(rule, printer);
+        } else if (rule.getTriggerType() == TriggerType.USAGE_HOURS
+                || rule.getTriggerType() == TriggerType.FILAMENT_GRAMS) {
+            maybeSendUsagePreAlert(rule, printer);
         }
     }
 
@@ -156,6 +170,25 @@ public class MaintenanceRuleService {
         ruleRepository.save(rule);
     }
 
+    // FIX 7: alerta previa para reglas por horas/gramos (umbral porcentual).
+    private void maybeSendUsagePreAlert(MaintenanceRule rule, Printer printer) {
+        double progress = computeProgress(rule, printer);
+        if (progress < (100.0 - alertThresholdPercent) || progress >= 100.0) {
+            return;
+        }
+        // Evita reenviar la misma alerta todos los días.
+        if (rule.getAlertSentAt() != null && rule.getAlertSentAt().isEqual(LocalDate.now())) {
+            return;
+        }
+        String unit = rule.getTriggerType() == TriggerType.USAGE_HOURS ? "hs de uso" : "g de filamento";
+        notifyTechnicians(
+                "La impresora " + printerName(printer) + " está por alcanzar el umbral de mantenimiento "
+                        + "(regla #" + rule.getId() + ", " + Math.round(progress) + "% de " + rule.getTriggerValue() + " " + unit + ").",
+                null);
+        rule.setAlertSentAt(LocalDate.now());
+        ruleRepository.save(rule);
+    }
+
     // ── Generación de la orden ──────────────────────────────────────────────
     private MaintenanceOrder createOrder(MaintenanceRule rule, Printer printer) {
         MaintenanceOrder order = new MaintenanceOrder();
@@ -164,6 +197,7 @@ public class MaintenanceRuleService {
         order.setStatus(OrderStatus.PENDING);
         order.setDescription("Mantenimiento automático (" + rule.getTriggerType() + ") generado por la regla #" + rule.getId());
         order.setMaintenanceRuleId(rule.getId());
+        order.setWorkspaceId(rule.getWorkspaceId());
 
         for (String item : parseChecklist(rule.getChecklistTemplate())) {
             OrderChecklistItem ci = new OrderChecklistItem();
@@ -204,7 +238,7 @@ public class MaintenanceRuleService {
     }
 
     private MaintenanceRuleDTO setActive(Long id, boolean active) {
-        MaintenanceRule rule = ruleRepository.findById(id)
+        MaintenanceRule rule = ruleRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Regla no encontrada con id " + id));
         rule.setActive(active);
         return toDTO(ruleRepository.save(rule));
@@ -212,15 +246,17 @@ public class MaintenanceRuleService {
 
     @Transactional
     public void deleteRule(Long id) {
-        if (!ruleRepository.existsById(id)) {
-            throw new NoSuchElementException("Regla no encontrada con id " + id);
-        }
-        ruleRepository.deleteById(id);
+        MaintenanceRule rule = ruleRepository.findByIdAndWorkspaceId(id, wsId())
+                .orElseThrow(() -> new NoSuchElementException("Regla no encontrada con id " + id));
+        ruleRepository.delete(rule);
     }
 
     // ── Consultas ────────────────────────────────────────────────────────────
     @Transactional(readOnly = true)
     public List<MaintenanceRuleDTO> getRulesForPrinter(Long printerId) {
+        // Valida que la impresora pertenezca al workspace del usuario.
+        printerRepository.findByIdAndWorkspaceId(printerId, wsId())
+                .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + printerId));
         return ruleRepository.findByPrinterIdAndActiveTrue(printerId).stream()
                 .map(this::toDTO)
                 .toList();
@@ -228,7 +264,7 @@ public class MaintenanceRuleService {
 
     @Transactional(readOnly = true)
     public MaintenanceRuleDTO getRule(Long id) {
-        return ruleRepository.findById(id)
+        return ruleRepository.findByIdAndWorkspaceId(id, wsId())
                 .map(this::toDTO)
                 .orElseThrow(() -> new NoSuchElementException("Regla no encontrada con id " + id));
     }

@@ -50,6 +50,10 @@ public class Printer {
     @Column(nullable = false, columnDefinition = "DOUBLE PRECISION DEFAULT 0")
     private Double totalFilamentGrams = 0.0;
 
+    // FIX 3: aislación multi-tenant. Cada impresora pertenece a un workspace.
+    @Column(name = "workspace_id", nullable = false)
+    private Long workspaceId;
+
     @Column(unique = true, nullable = false)
     private String qrCodeData;
 
@@ -89,6 +93,8 @@ public class Printer {
     public void setTotalPrintingHours(Double totalPrintingHours) { this.totalPrintingHours = totalPrintingHours; }
     public Double getTotalFilamentGrams() { return totalFilamentGrams; }
     public void setTotalFilamentGrams(Double totalFilamentGrams) { this.totalFilamentGrams = totalFilamentGrams; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
     public String getQrCodeData() { return qrCodeData; }
     public void setQrCodeData(String qrCodeData) { this.qrCodeData = qrCodeData; }
 }

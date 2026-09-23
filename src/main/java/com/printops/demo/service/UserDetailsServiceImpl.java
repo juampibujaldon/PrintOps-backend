@@ -3,11 +3,9 @@ package com.printops.demo.service;
 
 import com.printops.demo.entity.User;
 import com.printops.demo.repository.UserRepository;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import com.printops.demo.security.AuthUser;
 import org.springframework.security.core.userdetails.*;
 import org.springframework.stereotype.Service;
-
-import java.util.List;
 
 @Service
 public class UserDetailsServiceImpl implements UserDetailsService {
@@ -23,12 +21,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("Usuario no encontrado: " + email));
 
-        return new org.springframework.security.core.userdetails.User(
-                user.getEmail(),
-                user.getPassword(),
-                user.isEnabled(),
-                true, true, true,
-                List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
-        );
+        // FIX 3: el principal expone workspaceId para el filtrado multi-tenant.
+        return new AuthUser(user);
     }
 }

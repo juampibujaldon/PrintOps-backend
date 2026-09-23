@@ -27,7 +27,7 @@ public class User {
     private Instant createdAt;
 
     @Column(nullable = false)
-    private boolean enabled;
+    private boolean enabled = true;
 
     // Verificación de email (Resend): por defecto el usuario no está verificado.
     @Column(name = "email_verified", nullable = false, columnDefinition = "BOOLEAN DEFAULT false")
@@ -52,8 +52,9 @@ public class User {
 
     @PrePersist
     protected void onCreate() {
+        // FIX 5: no forzar `enabled = true`. El default lo da el inicializador del
+        // campo (= true). Un usuario deshabilitado explícitamente ya no se reactiva.
         createdAt = Instant.now();
-        if (!enabled) enabled = true;
     }
 
     public Long getId() { return id; }

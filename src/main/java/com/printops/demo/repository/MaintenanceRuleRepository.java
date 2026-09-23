@@ -6,15 +6,18 @@ import com.printops.demo.entity.TriggerType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface MaintenanceRuleRepository extends JpaRepository<MaintenanceRule, Long> {
 
-    // Todas las reglas activas (las que evalúa el scheduler).
+    // Sin filtro de workspace: la usa el scheduler, que evalúa TODOS los tenants.
     List<MaintenanceRule> findByActiveTrue();
 
-    // Reglas activas de una impresora en particular.
+    // Reglas activas de una impresora (la impresora ya fue validada como del tenant).
     List<MaintenanceRule> findByPrinterIdAndActiveTrue(Long printerId);
 
-    // Evita duplicar: solo una regla activa por triggerType e impresora.
     boolean existsByPrinterIdAndTriggerTypeAndActiveTrue(Long printerId, TriggerType type);
+
+    // FIX 3: consultas puntuales filtradas por workspace.
+    Optional<MaintenanceRule> findByIdAndWorkspaceId(Long id, Long workspaceId);
 }

@@ -8,6 +8,7 @@ import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.repository.SparePartRepository;
 import com.printops.demo.repository.StatusHistoryRepository;
 import com.printops.demo.repository.UserRepository;
+import com.printops.demo.security.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -62,10 +63,14 @@ public class OrderService {
         }
     }
 
+    private Long wsId() {
+        return TenantContext.getCurrentWorkspaceId();
+    }
+
     @Transactional
     @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public OrderResponseDTO create(CreateOrderRequest dto, String creatorEmail) {
-        Printer printer = printerRepository.findById(dto.printerId())
+        Printer printer = printerRepository.findByIdAndWorkspaceId(dto.printerId(), wsId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + dto.printerId()));
         User creator = userRepository.findByEmail(creatorEmail)
                 .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
@@ -84,6 +89,7 @@ public class OrderService {
         order.setAssignedTo(creator); // técnico asignado = quien la crea (US-05)
         order.setType(type);
         order.setStatus(OrderStatus.PENDING);
+        order.setWorkspaceId(wsId());
         order.setDescription(blankToNull(dto.description()));
         order.setEstimatedTimeMinutes(dto.estimatedTimeMinutes());
 
@@ -124,13 +130,13 @@ public class OrderService {
     public List<OrderResponseDTO> list(Long printerId, String status) {
         List<MaintenanceOrder> orders;
         if (printerId != null && status != null) {
-            orders = orderRepository.findByPrinterIdAndStatus(printerId, parseStatus(status));
+            orders = orderRepository.findByPrinterIdAndWorkspaceIdAndStatus(printerId, wsId(), parseStatus(status));
         } else if (printerId != null) {
-            orders = orderRepository.findByPrinterId(printerId);
+            orders = orderRepository.findByPrinterIdAndWorkspaceId(printerId, wsId());
         } else if (status != null) {
-            orders = orderRepository.findByStatus(parseStatus(status));
+            orders = orderRepository.findByWorkspaceIdAndStatus(wsId(), parseStatus(status));
         } else {
-            orders = orderRepository.findAll();
+            orders = orderRepository.findByWorkspaceId(wsId());
         }
         return orders.stream()
                 .sorted(Comparator
@@ -142,14 +148,14 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderResponseDTO get(Long id) {
-        return toResponse(orderRepository.findById(id)
+        return toResponse(orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id)));
     }
 
     @Transactional
     @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public OrderResponseDTO changeStatus(Long id, StatusChangeRequest request, String role, String email) {
-        MaintenanceOrder order = orderRepository.findById(id)
+        MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
         User actor = userRepository.findByEmail(email)
                 .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
@@ -265,7 +271,7 @@ public class OrderService {
 
     @Transactional
     public OrderResponseDTO addPart(Long id, AddPartRequest request) {
-        MaintenanceOrder order = orderRepository.findById(id)
+        MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
 
         order.addPart(buildOrderPart(new CreateOrderRequest.PartInput(
@@ -277,7 +283,7 @@ public class OrderService {
     // US-10: quitar una pieza de una orden (solo antes de completarse).
     @Transactional
     public OrderResponseDTO removePart(Long orderId, Long partId) {
-        MaintenanceOrder order = orderRepository.findById(orderId)
+        MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(orderId, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + orderId));
 
         if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
@@ -290,7 +296,7 @@ public class OrderService {
 
     @Transactional
     public OrderResponseDTO addPhotos(Long id, List<MultipartFile> photos) {
-        MaintenanceOrder order = orderRepository.findById(id)
+        MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
 
         if (photos == null || photos.isEmpty()) {

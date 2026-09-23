@@ -7,6 +7,7 @@ import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.OrderPartRepository;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.repository.SparePartRepository;
+import com.printops.demo.security.TenantContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -51,6 +52,10 @@ public class GlobalMetricsService {
         this.printerRepository = printerRepository;
     }
 
+    private Long wsId() {
+        return TenantContext.getCurrentWorkspaceId();
+    }
+
     @Cacheable(cacheNames = "dashboard-metrics")
     @Transactional(readOnly = true)
     public DashboardMetricsDTO getDashboardMetrics(MetricsFilters filters) {
@@ -59,11 +64,11 @@ public class GlobalMetricsService {
         Instant fromI = from.atStartOfDay(ZONE).toInstant();
         Instant toI = to.plusDays(1).atStartOfDay(ZONE).toInstant();
 
-        List<Printer> printers = printerRepository.findAll();
+        List<Printer> printers = printerRepository.findByWorkspaceId(wsId());
 
         // ── Órdenes ──────────────────────────────────────────────────────────
-        Map<OrderStatus, Long> statusCounts = toStatusMap(orderRepository.countByStatusInPeriod(fromI, toI));
-        Map<OrderType, Long> typeCounts = toTypeMap(orderRepository.countByTypeInPeriod(fromI, toI));
+        Map<OrderStatus, Long> statusCounts = toStatusMap(orderRepository.countByStatusInPeriod(wsId(), fromI, toI));
+        Map<OrderType, Long> typeCounts = toTypeMap(orderRepository.countByTypeInPeriod(wsId(), fromI, toI));
 
         int totalOrders = (int) statusCounts.values().stream().mapToLong(Long::longValue).sum();
         int openOrders = (int) (statusCounts.getOrDefault(OrderStatus.PENDING, 0L)
@@ -76,11 +81,11 @@ public class GlobalMetricsService {
                 typeCounts.getOrDefault(OrderType.CORRECTIVE, 0L).intValue(),
                 typeCounts.getOrDefault(OrderType.CALIBRATION, 0L).intValue());
 
-        double avgResolution = avgResolutionHours(orderRepository.completedTimestamps(fromI, toI));
-        int overdue = (int) orderRepository.countOverdue(Instant.now().minus(7, ChronoUnit.DAYS));
+        double avgResolution = avgResolutionHours(orderRepository.completedTimestamps(wsId(), fromI, toI));
+        int overdue = (int) orderRepository.countOverdue(wsId(), Instant.now().minus(7, ChronoUnit.DAYS));
 
         // ── Disponibilidad ───────────────────────────────────────────────────
-        Map<Long, Double> minutesByPrinter = toLongDoubleMap(orderRepository.sumActualMinutesByPrinter(fromI, toI));
+        Map<Long, Double> minutesByPrinter = toLongDoubleMap(orderRepository.sumActualMinutesByPrinter(wsId(), fromI, toI));
         double periodHours = (ChronoUnit.DAYS.between(from, to) + 1) * 24.0;
 
         List<PrinterAvailabilityDTO> availability = printers.stream()
@@ -98,14 +103,14 @@ public class GlobalMetricsService {
                 : availability.stream().mapToDouble(PrinterAvailabilityDTO::availabilityPercent).average().orElse(100.0);
 
         // ── Costos ───────────────────────────────────────────────────────────
-        Double totalParts = orderPartRepository.totalPartsCostInPeriod(fromI, toI);
+        Double totalParts = orderPartRepository.totalPartsCostInPeriod(wsId(), fromI, toI);
         if (totalParts == null) totalParts = 0.0;
 
-        Long totalMinutes = orderRepository.totalActualMinutesInPeriod(fromI, toI);
+        Long totalMinutes = orderRepository.totalActualMinutesInPeriod(wsId(), fromI, toI);
         double totalLabor = (totalMinutes != null ? totalMinutes : 0L) / 60.0 * hourlyRate;
         double totalCost = totalParts + totalLabor;
 
-        Map<Long, Double> partsByPrinter = toLongDoubleMap(orderPartRepository.partsCostByPrinter(fromI, toI));
+        Map<Long, Double> partsByPrinter = toLongDoubleMap(orderPartRepository.partsCostByPrinter(wsId(), fromI, toI));
         List<PrinterCostDTO> costByPrinter = printers.stream()
                 .map(p -> {
                     double parts = partsByPrinter.getOrDefault(p.getId(), 0.0);
@@ -115,13 +120,13 @@ public class GlobalMetricsService {
                 .sorted(Comparator.comparingDouble(PrinterCostDTO::totalCost).reversed())
                 .toList();
 
-        Map<String, Double> partsByMonth = toMonthMap(orderPartRepository.partsCostByMonth(fromI, toI));
-        Map<String, Double> laborByMonth = toMonthMap(orderRepository.laborMinutesByMonth(fromI, toI));
+        Map<String, Double> partsByMonth = toMonthMap(orderPartRepository.partsCostByMonth(wsId(), fromI, toI));
+        Map<String, Double> laborByMonth = toMonthMap(orderRepository.laborMinutesByMonth(wsId(), fromI, toI));
         List<MonthlyCostDTO> costByMonth = buildMonthlyCost(from, to, partsByMonth, laborByMonth);
 
         // ── Top fallas ───────────────────────────────────────────────────────
-        Map<Long, Double> correctiveParts = toLongDoubleMap(orderPartRepository.correctivePartsCostByPrinter(fromI, toI));
-        List<FailingPrinterDTO> top3Failing = orderRepository.topFailingPrinters(fromI, toI).stream()
+        Map<Long, Double> correctiveParts = toLongDoubleMap(orderPartRepository.correctivePartsCostByPrinter(wsId(), fromI, toI));
+        List<FailingPrinterDTO> top3Failing = orderRepository.topFailingPrinters(wsId(), fromI, toI).stream()
                 .limit(3)
                 .map(row -> {
                     Long id = (Long) row[0];
@@ -133,7 +138,7 @@ public class GlobalMetricsService {
                 .toList();
 
         // ── Stock bajo ───────────────────────────────────────────────────────
-        List<LowStockPartDTO> lowStock = sparePartRepository.findByStockLessThanEqualMinStock().stream()
+        List<LowStockPartDTO> lowStock = sparePartRepository.findLowStock(wsId()).stream()
                 .map(p -> new LowStockPartDTO(
                         p.getId(), p.getName(), p.getPartNumber(),
                         p.getStock() != null ? p.getStock() : 0,

@@ -2,6 +2,7 @@
 package com.printops.demo.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -50,19 +51,30 @@ public class MaintenanceOrder {
     @Column(name = "maintenance_rule_id")
     private Long maintenanceRuleId;
 
+    // FIX 3: aislación multi-tenant. Cada orden pertenece a un workspace.
+    @Column(name = "workspace_id", nullable = false)
+    private Long workspaceId;
+
     @Column(nullable = false, updatable = false, columnDefinition = "TIMESTAMPTZ DEFAULT NOW()")
     private Instant createdAt;
 
     @Column
     private Instant updatedAt;
 
+    // FIX 4: locking optimista contra actualizaciones concurrentes.
+    @Version
+    private Long version;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @BatchSize(size = 50)
     private List<OrderChecklistItem> checklistItems = new ArrayList<>();
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @BatchSize(size = 50)
     private List<OrderPart> parts = new ArrayList<>();
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
+    @BatchSize(size = 50)
     private List<OrderPhoto> photos = new ArrayList<>();
 
     @PrePersist
@@ -114,8 +126,12 @@ public class MaintenanceOrder {
     public void setActualTimeMinutes(Integer actualTimeMinutes) { this.actualTimeMinutes = actualTimeMinutes; }
     public Long getMaintenanceRuleId() { return maintenanceRuleId; }
     public void setMaintenanceRuleId(Long maintenanceRuleId) { this.maintenanceRuleId = maintenanceRuleId; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
     public List<OrderChecklistItem> getChecklistItems() { return checklistItems; }
     public List<OrderPart> getParts() { return parts; }
     public List<OrderPhoto> getPhotos() { return photos; }

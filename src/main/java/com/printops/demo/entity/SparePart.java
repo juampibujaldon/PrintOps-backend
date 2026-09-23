@@ -53,6 +53,14 @@ public class SparePart {
     @Column
     private String supplierUrl;
 
+    // FIX 3: aislación multi-tenant. Cada repuesto pertenece a un workspace.
+    @Column(name = "workspace_id", nullable = false)
+    private Long workspaceId;
+
+    // FIX 4: locking optimista contra escrituras concurrentes de stock.
+    @Version
+    private Long version;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;
@@ -100,6 +108,10 @@ public class SparePart {
     public void setUnitPrice(Double unitPrice) { this.unitPrice = unitPrice; }
     public String getSupplierUrl() { return supplierUrl; }
     public void setSupplierUrl(String supplierUrl) { this.supplierUrl = supplierUrl; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
+    public Long getVersion() { return version; }
+    public void setVersion(Long version) { this.version = version; }
     public User getCreatedBy() { return createdBy; }
     public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
     public Instant getCreatedAt() { return createdAt; }

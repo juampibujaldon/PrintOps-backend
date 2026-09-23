@@ -66,6 +66,10 @@ public class MaintenanceRule {
     @Column
     private LocalDate alertSentAt;
 
+    // FIX 3: aislación multi-tenant. Cada regla pertenece a un workspace.
+    @Column(name = "workspace_id", nullable = false)
+    private Long workspaceId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by")
     private User createdBy;
@@ -109,6 +113,8 @@ public class MaintenanceRule {
     public void setLastFilamentSnapshot(Double lastFilamentSnapshot) { this.lastFilamentSnapshot = lastFilamentSnapshot; }
     public LocalDate getAlertSentAt() { return alertSentAt; }
     public void setAlertSentAt(LocalDate alertSentAt) { this.alertSentAt = alertSentAt; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
     public User getCreatedBy() { return createdBy; }
     public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
     public Instant getCreatedAt() { return createdAt; }

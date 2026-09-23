@@ -6,6 +6,7 @@ import com.printops.demo.dto.PrinterResponseDTO;
 import com.printops.demo.entity.Printer;
 import com.printops.demo.entity.PrinterStatus;
 import com.printops.demo.repository.PrinterRepository;
+import com.printops.demo.security.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -33,7 +34,6 @@ public class PrinterService {
 
     public PrinterService(PrinterRepository printerRepository) {
         this.printerRepository = printerRepository;
-        // Ensure upload directory exists
         try {
             Files.createDirectories(Paths.get(uploadDir));
         } catch (IOException e) {
@@ -41,15 +41,17 @@ public class PrinterService {
         }
     }
 
-    // FIX 2: ahora recibe el DTO (no la entidad) y mapea manualmente.
-    // El id lo asigna la DB y el qrCodeData se genera acá, nunca desde el cliente.
+    // FIX 3: workspace del usuario autenticado, usado para filtrar todo.
+    private Long wsId() {
+        return TenantContext.getCurrentWorkspaceId();
+    }
+
     @Transactional
     public PrinterResponseDTO createPrinter(CreatePrinterRequest dto, MultipartFile photo) {
         log.info("Creando impresora: serialNumber={}, brand={}, model={}",
                 dto.serialNumber(), dto.brand(), dto.model());
 
-        if (printerRepository.findBySerialNumber(dto.serialNumber()).isPresent()) {
-            log.warn("Número de serie duplicado: {}", dto.serialNumber());
+        if (printerRepository.findBySerialNumberAndWorkspaceId(dto.serialNumber(), wsId()).isPresent()) {
             throw new IllegalArgumentException("El número de serie ya está registrado.");
         }
 
@@ -62,79 +64,60 @@ public class PrinterService {
         printer.setName(blankToNull(dto.name()));
         printer.setLocation(blankToNull(dto.location()));
         printer.setNextMaintenanceDate(dto.nextMaintenanceDate());
+        printer.setWorkspaceId(wsId());
 
-        // El dato del QR se genera en el servidor, nunca se acepta del request.
-        // Guarda un deep link con el número de serie: al escanearlo, la app puede
-        // resolver la impresora (lookup por serialNumber).
         printer.setQrCodeData("printops://printer/" + dto.serialNumber());
 
         if (photo != null && !photo.isEmpty()) {
-            log.info("Procesando foto: originalName={}, size={} bytes",
-                    photo.getOriginalFilename(), photo.getSize());
             String fileName = UUID.randomUUID() + "_" + photo.getOriginalFilename();
             try {
                 Path targetLocation = Paths.get(uploadDir).resolve(fileName);
                 Files.copy(photo.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-
-                // Generar URL pública para acceder a la foto
                 String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
                         .path("/uploads/printers/")
                         .path(fileName)
                         .toUriString();
-
                 printer.setPhotoUrl(fileDownloadUri);
-                log.info("Foto guardada en: {}", targetLocation);
             } catch (IOException ex) {
                 log.error("Error guardando la foto", ex);
                 throw new RuntimeException("No se pudo guardar la foto.", ex);
             }
-        } else {
-            log.info("Sin foto adjunta (opcional).");
         }
 
         Printer saved = printerRepository.save(printer);
-        log.info("Impresora guardada con id={}", saved.getId());
         return toResponse(saved);
     }
 
-    // FIX 3: filtro opcional por ubicación.
     @Transactional(readOnly = true)
     public List<PrinterResponseDTO> getAllPrinters(String location) {
-        List<Printer> printers;
-        if (location != null && !location.isBlank()) {
-            printers = printerRepository.findByLocationContainingIgnoreCase(location);
-        } else {
-            printers = printerRepository.findAll();
-        }
+        List<Printer> printers = (location != null && !location.isBlank())
+                ? printerRepository.findByWorkspaceIdAndLocationContainingIgnoreCase(wsId(), location)
+                : printerRepository.findByWorkspaceId(wsId());
         return printers.stream().map(this::toResponse).toList();
     }
 
-    // Lookup por número de serie (usado al escanear el QR).
     @Transactional(readOnly = true)
     public PrinterResponseDTO getBySerialNumber(String serialNumber) {
-        return printerRepository.findBySerialNumber(serialNumber)
+        return printerRepository.findBySerialNumberAndWorkspaceId(serialNumber, wsId())
                 .map(this::toResponse)
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con serie " + serialNumber));
     }
 
-    // FIX 4: actualiza la fecha del próximo mantenimiento (ej. al cerrar una orden).
     @Transactional
     public PrinterResponseDTO updateNextMaintenanceDate(Long id, LocalDate nextMaintenanceDate) {
-        Printer printer = printerRepository.findById(id)
+        Printer printer = printerRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + id));
         printer.setNextMaintenanceDate(nextMaintenanceDate);
         return toResponse(printerRepository.save(printer));
     }
 
-    // FIX 4: impresoras con mantenimiento vencido (fecha anterior a la indicada).
     @Transactional(readOnly = true)
     public List<PrinterResponseDTO> getPrintersWithDueMaintenance(LocalDate date) {
-        return printerRepository.findByNextMaintenanceDateBefore(date).stream()
+        return printerRepository.findByWorkspaceIdAndNextMaintenanceDateBefore(wsId(), date).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    // Mapeo entidad -> DTO de respuesta. Nunca se expone la entidad directamente.
     private PrinterResponseDTO toResponse(Printer p) {
         return new PrinterResponseDTO(
                 p.getId(),
@@ -151,7 +134,6 @@ public class PrinterService {
         );
     }
 
-    // Convierte strings vacíos/espacios en null para no persistir valores vacíos.
     private String blankToNull(String value) {
         return (value == null || value.isBlank()) ? null : value;
     }

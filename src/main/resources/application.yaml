@@ -8,10 +8,16 @@ spring:
     scheduling:
       enabled: true
 
+  # FIX 2: cache real con TTL (Caffeine) para el dashboard de métricas.
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=100,expireAfterWrite=5m
+
   datasource:
     url: jdbc:postgresql://localhost:5432/printops
     username: printopsadmin
-    password: printops1234
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -22,6 +28,8 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+        # FIX 10: evita N+1 cargando colecciones lazy (parts/photos) en lotes.
+        default_batch_fetch_size: 50
 
   # ERR-03: habilitar y dimensionar la subida de archivos multipart/form-data.
   servlet:
@@ -31,9 +39,9 @@ spring:
       max-request-size: 10MB
 
 jwt:
-  # Clave base64 de al menos 256 bits para HMAC-SHA256
-  secret: "cHJpbnRvcHMtc2VjcmV0LWtleS0yMDI0LW11c3QtYmUtYXQtbGVhc3QtMzItY2hhcnM="
-  expiration: 900000           # 15 minutos en ms
+  # Clave base64 de al menos 256 bits para HMAC-SHA256 (desde variable de entorno).
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:900000}  # 15 minutos en ms
   refresh-expiration: 604800000         # 7 días en ms
   refresh-expiration-remember: 2592000000  # 30 días en ms
 

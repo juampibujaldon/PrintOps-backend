@@ -11,11 +11,15 @@ import java.util.Optional;
 
 @Repository
 public interface PrinterRepository extends JpaRepository<Printer, Long> {
-    Optional<Printer> findBySerialNumber(String serialNumber);
 
-    // FIX 3: filtro por ubicación (búsqueda parcial, case-insensitive).
-    List<Printer> findByLocationContainingIgnoreCase(String location);
+    // FIX 3: todas las consultas están filtradas por workspace.
+    Optional<Printer> findByIdAndWorkspaceId(Long id, Long workspaceId);
 
-    // FIX 4: detecta impresoras con mantenimiento vencido.
-    List<Printer> findByNextMaintenanceDateBefore(LocalDate date);
+    Optional<Printer> findBySerialNumberAndWorkspaceId(String serialNumber, Long workspaceId);
+
+    List<Printer> findByWorkspaceId(Long workspaceId);
+
+    List<Printer> findByWorkspaceIdAndLocationContainingIgnoreCase(Long workspaceId, String location);
+
+    List<Printer> findByWorkspaceIdAndNextMaintenanceDateBefore(Long workspaceId, LocalDate date);
 }
