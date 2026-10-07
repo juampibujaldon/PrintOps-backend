@@ -18,8 +18,8 @@ public interface QuoteRepository extends JpaRepository<Quote, Long> {
             WHERE (:status IS NULL OR q.status = :status)
               AND (CAST(:clientName AS string) IS NULL OR LOWER(q.clientName) LIKE LOWER(CONCAT('%', CAST(:clientName AS string), '%')))
               AND (:printerId IS NULL OR q.printer.id = :printerId)
-              AND (:from IS NULL OR q.createdAt >= :from)
-              AND (:to IS NULL OR q.createdAt <= :to)
+              AND (CAST(:from AS timestamp) IS NULL OR q.createdAt >= CAST(:from AS timestamp))
+              AND (CAST(:to AS timestamp) IS NULL OR q.createdAt <= CAST(:to AS timestamp))
             ORDER BY q.createdAt DESC
             """)
     List<Quote> search(@Param("status") QuoteStatus status,
