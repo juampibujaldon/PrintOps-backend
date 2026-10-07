@@ -51,6 +51,19 @@ public class WorkspaceController {
         return ResponseEntity.ok(workspaceService.updateQuoteDefaults(userDetails.getUsername(), request));
     }
 
+    @GetMapping("/canvas")
+    public ResponseEntity<String> getCanvasLayout(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(workspaceService.getCanvasLayout(userDetails.getUsername()));
+    }
+
+    @PutMapping("/canvas")
+    public ResponseEntity<String> updateCanvasLayout(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @RequestBody String layoutJson) {
+        return ResponseEntity.ok(workspaceService.updateCanvasLayout(userDetails.getUsername(), layoutJson));
+    }
+
     // ── Invites ──
 
     @PostMapping("/invites")

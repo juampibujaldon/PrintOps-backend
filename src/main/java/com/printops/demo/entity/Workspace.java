@@ -52,6 +52,10 @@ public class Workspace {
     @Column(name = "quote_validity_days", columnDefinition = "INTEGER DEFAULT 15")
     private Integer quoteValidityDays = 15;
 
+    // ── Layout Visual del Taller (JSON) ──
+    @Column(name = "canvas_layout", columnDefinition = "TEXT")
+    private String canvasLayout;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -93,4 +97,7 @@ public class Workspace {
     public void setDefaultMarginPercent(Double v) { this.defaultMarginPercent = v; }
     public Integer getQuoteValidityDays() { return quoteValidityDays; }
     public void setQuoteValidityDays(Integer v) { this.quoteValidityDays = v; }
+    
+    public String getCanvasLayout() { return canvasLayout; }
+    public void setCanvasLayout(String canvasLayout) { this.canvasLayout = canvasLayout; }
 }

@@ -149,6 +149,26 @@ public class WorkspaceService {
         return token;
     }
 
+    @Transactional(readOnly = true)
+    public String getCanvasLayout(String email) {
+        Workspace ws = resolveWorkspace(email);
+        return ws.getCanvasLayout() != null ? ws.getCanvasLayout() : "{\"nodes\":[],\"edges\":[]}";
+    }
+
+    @Transactional
+    public String updateCanvasLayout(String email, String layoutJson) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        if (user.getRole() != Role.MANAGER) {
+            throw new IllegalArgumentException("Solo un manager puede editar el layout del taller.");
+        }
+        Workspace ws = resolveWorkspace(email);
+        ws.setCanvasLayout(layoutJson);
+        workspaceRepository.save(ws);
+        log.info("Layout de taller actualizado por {}", email);
+        return layoutJson;
+    }
+
     // ── Helpers ──
 
     private Workspace resolveWorkspace(String email) {
