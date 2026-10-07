@@ -92,10 +92,7 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Credenciales inválidas"));
 
-        // Verificación por mail: no se permite iniciar sesión hasta verificar.
-        if (!user.isEmailVerified()) {
-            throw new EmailNotVerifiedException("Debes verificar tu email antes de iniciar sesión.");
-        }
+        // Removida la verificación por mail.
 
         // Login exitoso: limpiar intentos fallidos
         failedAttempts.remove(ip);
@@ -122,7 +119,7 @@ public class AuthService {
         user.setEmail(email);
         user.setPassword(passwordEncoder.encode(password));
         user.setEnabled(true);
-        user.setEmailVerified(false);
+        user.setEmailVerified(true); // Auto-verificar sin email
 
         // Con inviteToken → TECNICO que se une a un workspace existente.
         // Sin inviteToken → MANAGER que crea su propio workspace.
@@ -147,15 +144,7 @@ public class AuthService {
             user.setWorkspaceId(ws.getId());
         }
 
-        // Token de verificación único con expiración de 24 hs.
-        String token = UUID.randomUUID().toString();
-        user.setVerificationToken(token);
-        user.setVerificationTokenExpiry(Instant.now().plusSeconds(VERIFICATION_TOKEN_TTL_SECONDS));
-
         userRepository.save(user);
-
-        // Envío del magic link. Si falla, la transacción se revierte y el registro no persiste.
-        emailService.sendVerificationEmail(email, buildVerificationUrl(token));
     }
 
     // Verifica el email usando el token del magic link.
@@ -184,11 +173,11 @@ public class AuthService {
     public void resendVerification(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
             if (!user.isEmailVerified()) {
-                String token = UUID.randomUUID().toString();
+                String token = String.format("%06d", new java.util.Random().nextInt(1000000));
                 user.setVerificationToken(token);
                 user.setVerificationTokenExpiry(Instant.now().plusSeconds(VERIFICATION_TOKEN_TTL_SECONDS));
                 userRepository.save(user);
-                emailService.sendVerificationEmail(email, buildVerificationUrl(token));
+                emailService.sendVerificationEmail(email, token);
             }
         });
         // Siempre responde OK para no revelar si el email existe.
@@ -286,15 +275,6 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new BadCredentialsException("Usuario no encontrado"));
         refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
-    }
-
-    // Registra el token FCM del dispositivo para recibir notificaciones push (US-05).
-    @Transactional
-    public void registerFcmToken(String email, String token) {
-        userRepository.findByEmail(email).ifPresent(user -> {
-            user.setFcmToken(token);
-            userRepository.save(user);
-        });
     }
 
     // Limpieza automática cada hora

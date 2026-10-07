@@ -1,6 +1,8 @@
 // src/main/java/com/printops/demo/service/WorkspaceService.java
 package com.printops.demo.service;
 
+import com.printops.demo.dto.QuoteDefaultsDTO;
+import com.printops.demo.dto.UpdateWorkspaceRequest;
 import com.printops.demo.dto.WorkspaceResponse;
 import com.printops.demo.entity.Role;
 import com.printops.demo.entity.User;
@@ -48,7 +50,68 @@ public class WorkspaceService {
         }
         Workspace ws = workspaceRepository.findById(user.getWorkspaceId())
                 .orElseThrow(() -> new NoSuchElementException("Taller no encontrado"));
-        return new WorkspaceResponse(ws.getId(), ws.getName());
+        return toResponse(ws);
+    }
+
+    @Transactional
+    public WorkspaceResponse updateMine(String email, UpdateWorkspaceRequest request) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        if (user.getRole() != Role.MANAGER) {
+            throw new IllegalArgumentException("Solo un manager puede editar el taller.");
+        }
+        if (user.getWorkspaceId() == null) {
+            throw new NoSuchElementException("No pertenecés a ningún taller.");
+        }
+        Workspace ws = workspaceRepository.findById(user.getWorkspaceId())
+                .orElseThrow(() -> new NoSuchElementException("Taller no encontrado"));
+
+        ws.setName(request.name());
+        ws.setPhone(request.phone());
+        ws.setContactEmail(request.contactEmail());
+        ws.setAddress(request.address());
+        ws.setLogoUrl(request.logoUrl());
+        if (request.currency() != null && !request.currency().isBlank()) {
+            ws.setCurrency(request.currency());
+        }
+
+        workspaceRepository.save(ws);
+        log.info("Workspace {} actualizado por {}", ws.getId(), email);
+        return toResponse(ws);
+    }
+
+    // ── Quote Defaults ──
+
+    @Transactional(readOnly = true)
+    public QuoteDefaultsDTO getQuoteDefaults(String email) {
+        Workspace ws = resolveWorkspace(email);
+        return new QuoteDefaultsDTO(
+                ws.getDefaultEnergyPriceKwh(),
+                ws.getDefaultOperatorHourlyRate(),
+                ws.getDefaultDesignHourlyRate(),
+                ws.getDefaultMarginPercent(),
+                ws.getQuoteValidityDays()
+        );
+    }
+
+    @Transactional
+    public QuoteDefaultsDTO updateQuoteDefaults(String email, QuoteDefaultsDTO dto) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        if (user.getRole() != Role.MANAGER) {
+            throw new IllegalArgumentException("Solo un manager puede editar los valores por defecto.");
+        }
+        Workspace ws = resolveWorkspace(email);
+
+        ws.setDefaultEnergyPriceKwh(dto.defaultEnergyPriceKwh());
+        ws.setDefaultOperatorHourlyRate(dto.defaultOperatorHourlyRate());
+        ws.setDefaultDesignHourlyRate(dto.defaultDesignHourlyRate());
+        ws.setDefaultMarginPercent(dto.defaultMarginPercent());
+        ws.setQuoteValidityDays(dto.quoteValidityDays());
+
+        workspaceRepository.save(ws);
+        log.info("Quote defaults actualizados por {}", email);
+        return dto;
     }
 
     // El manager invita a un técnico por email. Devuelve el token (útil para
@@ -84,5 +147,27 @@ public class WorkspaceService {
         log.info("Invitación enviada a {} para el taller {} (token={})", inviteEmail, ws.getName(), token);
 
         return token;
+    }
+
+    // ── Helpers ──
+
+    private Workspace resolveWorkspace(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        if (user.getWorkspaceId() == null) {
+            throw new NoSuchElementException("No pertenecés a ningún taller.");
+        }
+        return workspaceRepository.findById(user.getWorkspaceId())
+                .orElseThrow(() -> new NoSuchElementException("Taller no encontrado"));
+    }
+
+    private WorkspaceResponse toResponse(Workspace ws) {
+        return new WorkspaceResponse(
+                ws.getId(), ws.getName(), ws.getPhone(), ws.getContactEmail(),
+                ws.getAddress(), ws.getLogoUrl(), ws.getCurrency(),
+                ws.getDefaultEnergyPriceKwh(), ws.getDefaultOperatorHourlyRate(),
+                ws.getDefaultDesignHourlyRate(), ws.getDefaultMarginPercent(),
+                ws.getQuoteValidityDays()
+        );
     }
 }

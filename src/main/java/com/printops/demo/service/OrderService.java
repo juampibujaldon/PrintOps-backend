@@ -12,6 +12,7 @@ import com.printops.demo.security.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -41,7 +42,7 @@ public class OrderService {
     private final NotificationService notificationService;
     private final SparePartService sparePartService;
     private final StatusTransitionValidator statusTransitionValidator;
-    private final FcmService fcmService;
+    private final SimpMessagingTemplate messagingTemplate;
     private final String uploadDir = "uploads/orders/";
 
     public OrderService(MaintenanceOrderRepository orderRepository,
@@ -52,7 +53,7 @@ public class OrderService {
                         NotificationService notificationService,
                         SparePartService sparePartService,
                         StatusTransitionValidator statusTransitionValidator,
-                        FcmService fcmService) {
+                        SimpMessagingTemplate messagingTemplate) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
         this.sparePartRepository = sparePartRepository;
@@ -61,7 +62,7 @@ public class OrderService {
         this.notificationService = notificationService;
         this.sparePartService = sparePartService;
         this.statusTransitionValidator = statusTransitionValidator;
-        this.fcmService = fcmService;
+        this.messagingTemplate = messagingTemplate;
         try {
             Files.createDirectories(Paths.get(uploadDir));
         } catch (IOException e) {
@@ -267,13 +268,15 @@ public class OrderService {
         }
     }
 
-    // Crea la notificación in-app y, si el destinatario tiene token FCM, el push.
+    // Crea la notificación in-app y envía un mensaje por WebSocket si el usuario está conectado.
     private void notify(User recipient, String type, String message, Long orderId,
                         String pushTitle, String pushBody) {
         Long recipientUserId = recipient != null ? recipient.getId() : null;
         notificationService.createFor(recipientUserId, type, message, orderId);
-        if (recipient != null && recipient.getFcmToken() != null) {
-            fcmService.sendPush(recipient.getFcmToken(), pushTitle, pushBody, orderId);
+        if (recipient != null) {
+            // Se envía a un canal específico del usuario, por ejemplo: /queue/user-{id}
+            messagingTemplate.convertAndSend("/queue/user-" + recipient.getId(), 
+                (Object) java.util.Map.of("title", pushTitle, "body", pushBody, "orderId", orderId));
         }
     }
 

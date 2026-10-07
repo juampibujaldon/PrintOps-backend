@@ -30,23 +30,18 @@ public class EmailService {
         this.httpClient = HttpClient.newHttpClient();
     }
 
-    public void sendVerificationEmail(String to, String verificationUrl) {
+    public void sendVerificationEmail(String to, String code) {
         String subject = "Verificá tu email en PrintOps";
         String html = """
                 <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
                   <h2 style="color:#283618">Bienvenido a PrintOps</h2>
-                  <p>Para activar tu cuenta, confirmá tu dirección de email haciendo clic en el siguiente enlace:</p>
-                  <p style="margin:24px 0">
-                    <a href="%s"
-                       style="background-color:#283618;color:#ffffff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">
-                       Verificar mi email
-                    </a>
-                  </p>
+                  <p>Para activar tu cuenta, ingresá el siguiente código en la aplicación:</p>
+                  <p style="margin:24px 0;font-size:32px;font-weight:bold;letter-spacing:6px;text-align:center;color:#283618">%s</p>
                   <p style="color:#666;font-size:12px">
-                    Si no creaste una cuenta en PrintOps, ignorá este mensaje. El enlace expira en 24 horas.
+                    Si no creaste una cuenta en PrintOps, ignorá este mensaje. El código expira en 24 horas.
                   </p>
                 </div>
-                """.formatted(verificationUrl);
+                """.formatted(code);
         send(to, subject, html);
     }
 
@@ -88,7 +83,8 @@ public class EmailService {
         send(to, subject, html);
     }
 
-    public void send(String to, String subject, String html) {        if (apiKey == null || apiKey.isBlank()) {
+    public void send(String to, String subject, String html) {
+        if (apiKey == null || apiKey.isBlank()) {
             throw new IllegalStateException("RESEND_API_KEY no está configurada.");
         }
 
@@ -97,6 +93,7 @@ public class EmailService {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(RESEND_EMAILS_URL))
+                    .timeout(java.time.Duration.ofSeconds(5))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))

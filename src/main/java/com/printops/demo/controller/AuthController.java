@@ -39,23 +39,18 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request.email(), request.password(), request.inviteToken(), request.workspaceName());
         return ResponseEntity.ok(Map.of(
-                "message", "Usuario registrado. Te enviamos un email para verificar tu cuenta."
+                "message", "Usuario registrado correctamente."
         ));
     }
 
-    // Verificación por mail (magic link): se abre desde el navegador.
-    @GetMapping("/verify-email")
-    public ResponseEntity<String> verifyEmail(@RequestParam String token) {
+    // Verificación por mail con código de 6 dígitos ingresado por el usuario.
+    @PostMapping("/verify-email")
+    public ResponseEntity<Map<String, String>> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
         try {
-            authService.verifyEmail(token);
-            return ResponseEntity.ok()
-                    .contentType(MediaType.TEXT_HTML)
-                    .body(verificationHtml(true, null));
+            authService.verifyEmail(request.token());
+            return ResponseEntity.ok(Map.of("message", "Email verificado correctamente."));
         } catch (Exception e) {
-            String message = e.getMessage() != null ? e.getMessage() : "Token inválido.";
-            return ResponseEntity.badRequest()
-                    .contentType(MediaType.TEXT_HTML)
-                    .body(verificationHtml(false, message));
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage() != null ? e.getMessage() : "Token inválido."));
         }
     }
 
@@ -69,22 +64,7 @@ public class AuthController {
         ));
     }
 
-    private String verificationHtml(boolean ok, String error) {
-        if (ok) {
-            return """
-                    <html><body style="font-family:Arial,sans-serif;text-align:center;padding-top:60px">
-                      <h2 style="color:#283618">Email verificado correctamente</h2>
-                      <p>Ya podés volver a la app de PrintOps e iniciar sesión.</p>
-                    </body></html>
-                    """;
-        }
-        return """
-                <html><body style="font-family:Arial,sans-serif;text-align:center;padding-top:60px">
-                  <h2 style="color:#d9534f">No se pudo verificar el email</h2>
-                  <p>%s</p>
-                </body></html>
-                """.formatted(error == null ? "Token inválido o expirado." : error);
-    }
+
 
     @PostMapping("/refresh")
     public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
@@ -124,14 +104,6 @@ public class AuthController {
         return ResponseEntity.ok(authService.getSessions(userDetails.getUsername()));
     }
 
-    // Registra el token de Firebase Cloud Messaging del dispositivo (US-05).
-    @PostMapping("/fcm-token")
-    public ResponseEntity<Map<String, String>> registerFcmToken(
-            @Valid @RequestBody FcmTokenRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        authService.registerFcmToken(userDetails.getUsername(), request.token());
-        return ResponseEntity.ok(Map.of("message", "Token de notificaciones registrado"));
-    }
 
     @DeleteMapping("/sessions/{deviceId}")
     public ResponseEntity<Map<String, String>> revokeSession(

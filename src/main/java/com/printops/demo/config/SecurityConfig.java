@@ -55,7 +55,8 @@ public class SecurityConfig {
                     "/api/auth/reset-password",
                     "/api/auth/verify-email",
                     "/api/auth/resend-verification",
-                    "/uploads/**"
+                    "/uploads/**",
+                    "/ws/**"
                 ).permitAll()
                 // Solo los técnicos crean órdenes (US-05: el técnico es quien la ejecuta).
                 .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("TECNICO")

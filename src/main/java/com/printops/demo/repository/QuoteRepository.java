@@ -16,7 +16,7 @@ public interface QuoteRepository extends JpaRepository<Quote, Long> {
     @Query("""
             SELECT q FROM Quote q
             WHERE (:status IS NULL OR q.status = :status)
-              AND (:clientName IS NULL OR LOWER(q.clientName) LIKE LOWER(CONCAT('%', :clientName, '%')))
+              AND (CAST(:clientName AS string) IS NULL OR LOWER(q.clientName) LIKE LOWER(CONCAT('%', CAST(:clientName AS string), '%')))
               AND (:printerId IS NULL OR q.printer.id = :printerId)
               AND (:from IS NULL OR q.createdAt >= :from)
               AND (:to IS NULL OR q.createdAt <= :to)

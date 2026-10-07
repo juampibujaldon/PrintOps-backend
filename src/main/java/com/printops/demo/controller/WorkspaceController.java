@@ -2,6 +2,8 @@
 package com.printops.demo.controller;
 
 import com.printops.demo.dto.InviteRequest;
+import com.printops.demo.dto.QuoteDefaultsDTO;
+import com.printops.demo.dto.UpdateWorkspaceRequest;
 import com.printops.demo.dto.WorkspaceResponse;
 import com.printops.demo.service.WorkspaceService;
 import jakarta.validation.Valid;
@@ -26,6 +28,30 @@ public class WorkspaceController {
     public ResponseEntity<WorkspaceResponse> getMine(@AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(workspaceService.getMine(userDetails.getUsername()));
     }
+
+    @PutMapping("/me")
+    public ResponseEntity<WorkspaceResponse> updateMine(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody UpdateWorkspaceRequest request) {
+        return ResponseEntity.ok(workspaceService.updateMine(userDetails.getUsername(), request));
+    }
+
+    // ── Quote Defaults ──
+
+    @GetMapping("/quote-defaults")
+    public ResponseEntity<QuoteDefaultsDTO> getQuoteDefaults(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(workspaceService.getQuoteDefaults(userDetails.getUsername()));
+    }
+
+    @PutMapping("/quote-defaults")
+    public ResponseEntity<QuoteDefaultsDTO> updateQuoteDefaults(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody QuoteDefaultsDTO request) {
+        return ResponseEntity.ok(workspaceService.updateQuoteDefaults(userDetails.getUsername(), request));
+    }
+
+    // ── Invites ──
 
     @PostMapping("/invites")
     public ResponseEntity<Map<String, String>> invite(

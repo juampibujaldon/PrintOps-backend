@@ -32,7 +32,7 @@ dependencies {
 	// Generación de PDF (US-11). OpenPDF: LGPL/MPL, fork de iText sin copyleft AGPL.
 	implementation("com.github.librepdf:openpdf:1.3.43")
 	// Notificaciones push con Firebase Cloud Messaging (US-05).
-	implementation("com.google.firebase:firebase-admin:9.10.0")
+	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
