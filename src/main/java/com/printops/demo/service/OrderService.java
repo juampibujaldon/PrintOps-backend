@@ -9,6 +9,7 @@ import com.printops.demo.repository.SparePartRepository;
 import com.printops.demo.repository.StatusHistoryRepository;
 import com.printops.demo.repository.UserRepository;
 import com.printops.demo.security.TenantContext;
+import com.printops.demo.util.UploadFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cache.annotation.CacheEvict;
@@ -26,7 +27,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.UUID;
 
 @Service
 public class OrderService {
@@ -170,9 +170,14 @@ public class OrderService {
         OrderStatus from = order.getStatus();
         OrderStatus to = parseStatus(request.newStatus());
 
+        // Las órdenes generadas automáticamente (reglas) nacen sin técnico: el
+        // primer técnico que la inicia la toma. Sin esto nadie podía moverlas.
+        if (order.getAssignedTo() == null && actor.getRole() == Role.TECNICO
+                && from == OrderStatus.PENDING && to == OrderStatus.IN_PROGRESS) {
+            order.setAssignedTo(actor);
+        }
         Long assignedId = order.getAssignedTo() != null ? order.getAssignedTo().getId() : null;
 
-        
         // Validación de transición legal + rol + asignación (400/403).
         statusTransitionValidator.validate(from, to, actor.getRole(), assignedId, actor.getId());
 
@@ -201,6 +206,9 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<StatusHistoryResponse> getHistory(Long id) {
+        // Valida que la orden pertenezca al workspace antes de exponer su historial.
+        orderRepository.findByIdAndWorkspaceId(id, wsId())
+                .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
         return historyRepository.findByOrderIdOrderByChangedAtDesc(id).stream()
                 .map(h -> new StatusHistoryResponse(
                         h.getId(),
@@ -215,36 +223,6 @@ public class OrderService {
                 .toList();
     }
 
-    private void validateTransition(MaintenanceOrder order, OrderStatus from, OrderStatus to,
-                                    boolean isManager, User actor) {
-        boolean isAssigned = order.getAssignedTo() != null
-                && order.getAssignedTo().getId().equals(actor.getId());
-
-        boolean allowed;
-        if (isManager) {
-            allowed = switch (to) {
-                case COMPLETED -> from == OrderStatus.IN_REVIEW;
-                case IN_PROGRESS -> from == OrderStatus.IN_REVIEW; // rechazo
-                case CANCELLED -> from == OrderStatus.PENDING || from == OrderStatus.IN_PROGRESS || from == OrderStatus.IN_REVIEW;
-                default -> false;
-            };
-        } else {
-            if (!isAssigned) {
-                throw new IllegalArgumentException("Solo el técnico asignado puede mover esta orden.");
-            }
-            allowed = switch (to) {
-                case IN_PROGRESS -> from == OrderStatus.PENDING;
-                case IN_REVIEW -> from == OrderStatus.IN_PROGRESS;
-                case CANCELLED -> from == OrderStatus.PENDING || from == OrderStatus.IN_PROGRESS;
-                default -> false;
-            };
-        }
-
-        if (!allowed) {
-            throw new IllegalArgumentException("Transición no permitida de " + from + " a " + to + " para tu rol.");
-        }
-    }
-
     private void notifyStatusChange(MaintenanceOrder order, OrderStatus from, OrderStatus to,
                                     User actor, String comment) {
         User manager = findManagerForOrder(order);
@@ -257,32 +235,32 @@ public class OrderService {
             notify(manager, "ORDER_STARTED", "Orden #" + orderId + " iniciada por " + actorName, orderId,
                     "Orden iniciada", "Orden #" + orderId + " iniciada por " + actorName);
         } else if (to == OrderStatus.IN_REVIEW) {
-            notify(manager, "ORDER_REVIEW", "Orden #" + orderId + " lista para revisión ✓", orderId,
-                    "Lista para revisión ✓", "Orden #" + orderId + " lista para tu revisión");
+            notify(manager, "ORDER_REVIEW", "Orden #" + orderId + " lista para revisión", orderId,
+                    "Lista para revisión", "Orden #" + orderId + " lista para tu revisión");
         } else if (to == OrderStatus.COMPLETED) {
-            notify(assigned, "ORDER_COMPLETED", "Orden #" + orderId + " aprobada y cerrada ✓", orderId,
-                    "Orden aprobada ✓", "Orden #" + orderId + " fue aprobada y cerrada");
+            notify(assigned, "ORDER_COMPLETED", "Orden #" + orderId + " aprobada y cerrada", orderId,
+                    "Orden aprobada", "Orden #" + orderId + " fue aprobada y cerrada");
         } else if (to == OrderStatus.IN_PROGRESS && from == OrderStatus.IN_REVIEW) {
-            notify(assigned, "ORDER_REJECTED", "Orden #" + orderId + " rechazada — ver comentario", orderId,
-                    "Orden rechazada", "Orden #" + orderId + " fue rechazada — ver comentario");
+            notify(assigned, "ORDER_REJECTED", "Orden #" + orderId + " rechazada. Ver comentario", orderId,
+                    "Orden rechazada", "Orden #" + orderId + " fue rechazada. Ver comentario");
         }
     }
 
     // Crea la notificación in-app y envía un mensaje por WebSocket si el usuario está conectado.
     private void notify(User recipient, String type, String message, Long orderId,
                         String pushTitle, String pushBody) {
-        Long recipientUserId = recipient != null ? recipient.getId() : null;
-        notificationService.createFor(recipientUserId, type, message, orderId);
-        if (recipient != null) {
-            // Se envía a un canal específico del usuario, por ejemplo: /queue/user-{id}
-            messagingTemplate.convertAndSend("/queue/user-" + recipient.getId(), 
-                (Object) java.util.Map.of("title", pushTitle, "body", pushBody, "orderId", orderId));
+        if (recipient == null) {
+            return;
         }
+        notificationService.createFor(recipient.getId(), type, message, orderId);
+        // Canal específico del usuario: /queue/user-{id}
+        messagingTemplate.convertAndSend("/queue/user-" + recipient.getId(),
+                (Object) java.util.Map.of("title", pushTitle, "body", pushBody, "orderId", orderId));
     }
 
     // El supervisor es el MANAGER del workspace del técnico asignado a la orden.
     private User findManagerForOrder(MaintenanceOrder order) {
-        Long workspaceId = order.getAssignedTo() != null ? order.getAssignedTo().getWorkspaceId() : null;
+        Long workspaceId = order.getWorkspaceId();
         if (workspaceId == null) return null;
         List<User> managers = userRepository.findByRoleAndWorkspaceId(Role.MANAGER, workspaceId);
         return managers.isEmpty() ? null : managers.get(0);
@@ -302,6 +280,11 @@ public class OrderService {
     public OrderResponseDTO addPart(Long id, AddPartRequest request) {
         MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
+
+        // Una orden cerrada ya descontó (o nunca descontará) stock: no se le agregan piezas.
+        if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalArgumentException("No se pueden modificar piezas de una orden cerrada.");
+        }
 
         order.addPart(buildOrderPart(new CreateOrderRequest.PartInput(
                 request.partId(), request.quantity(),
@@ -340,7 +323,7 @@ public class OrderService {
             if (photo == null || photo.isEmpty()) {
                 continue;
             }
-            String fileName = UUID.randomUUID() + "_" + photo.getOriginalFilename();
+            String fileName = UploadFiles.safeImageFileName(photo);
             try {
                 Path targetLocation = Paths.get(uploadDir).resolve(fileName);
                 Files.copy(photo.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
@@ -360,14 +343,21 @@ public class OrderService {
     }
 
     private OrderPart buildOrderPart(CreateOrderRequest.PartInput input) {
+        int quantity = input.quantity() != null ? input.quantity() : 1;
+        if (quantity <= 0) {
+            throw new IllegalArgumentException("La cantidad debe ser mayor a 0.");
+        }
         OrderPart op = new OrderPart();
-        op.setQuantity(input.quantity() != null ? input.quantity() : 1);
+        op.setQuantity(quantity);
 
         if (input.partId() != null) {
-            SparePart part = sparePartRepository.findById(input.partId())
+            SparePart part = sparePartRepository.findByIdAndWorkspaceId(input.partId(), wsId())
                     .orElseThrow(() -> new NoSuchElementException("Pieza no encontrada con id " + input.partId()));
             op.setSparePart(part);
         } else {
+            if (blankToNull(input.externalPartName()) == null && blankToNull(input.externalPartNumber()) == null) {
+                throw new IllegalArgumentException("Una pieza externa necesita nombre o número de parte.");
+            }
             op.setExternalPartName(blankToNull(input.externalPartName()));
             op.setExternalPartNumber(blankToNull(input.externalPartNumber()));
             op.setExternalUnitPrice(input.externalUnitPrice());

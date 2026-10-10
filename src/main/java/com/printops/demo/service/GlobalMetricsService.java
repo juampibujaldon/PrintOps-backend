@@ -56,7 +56,10 @@ public class GlobalMetricsService {
         return TenantContext.getCurrentWorkspaceId();
     }
 
-    @Cacheable(cacheNames = "dashboard-metrics")
+    // La clave incluye el workspace: sin él, dos talleres con el mismo rango de
+    // fechas compartían la misma entrada de caché y se veían las métricas ajenas.
+    @Cacheable(cacheNames = "dashboard-metrics",
+            key = "T(com.printops.demo.security.TenantContext).getCurrentWorkspaceId() + ':' + #filters.from() + ':' + #filters.to()")
     @Transactional(readOnly = true)
     public DashboardMetricsDTO getDashboardMetrics(MetricsFilters filters) {
         LocalDate from = filters.from();

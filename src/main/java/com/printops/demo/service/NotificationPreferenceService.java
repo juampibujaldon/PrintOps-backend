@@ -26,8 +26,13 @@ public class NotificationPreferenceService {
     @Transactional(readOnly = true)
     public NotificationPreferenceDTO get(String email) {
         User user = resolveUser(email);
+        // Transacción readOnly: no se persiste el default acá (Postgres rechaza el INSERT).
         NotificationPreference pref = repository.findById(user.getId())
-                .orElseGet(() -> createDefault(user.getId()));
+                .orElseGet(() -> {
+                    NotificationPreference p = new NotificationPreference();
+                    p.setUserId(user.getId());
+                    return p;
+                });
         return toDTO(pref);
     }
 

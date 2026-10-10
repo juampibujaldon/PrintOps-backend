@@ -53,7 +53,7 @@ public class SparePartService {
     @Transactional
     @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public SparePartDTO createPart(CreateSparePartRequest req, User user) {
-        if (sparePartRepository.existsByPartNumber(req.partNumber())) {
+        if (sparePartRepository.existsByPartNumberAndWorkspaceId(req.partNumber(), wsId())) {
             throw new IllegalArgumentException("Ya existe una pieza con ese número de parte.");
         }
         SparePart part = new SparePart();
@@ -68,7 +68,7 @@ public class SparePartService {
     public SparePartDTO updatePart(Long id, CreateSparePartRequest req) {
         SparePart part = find(id);
         if (!part.getPartNumber().equals(req.partNumber())
-                && sparePartRepository.existsByPartNumber(req.partNumber())) {
+                && sparePartRepository.existsByPartNumberAndWorkspaceId(req.partNumber(), wsId())) {
             throw new IllegalArgumentException("Ya existe una pieza con ese número de parte.");
         }
         apply(part, req);
@@ -204,7 +204,7 @@ public class SparePartService {
     // ── Helpers ───────────────────────────────────────────────────────────────
     // FIX 8: alerta de stock bajo dirigida a los supervisores del workspace.
     private void notifyLowStock(SparePart part, int after, Long workspaceId) {
-        String message = "⚠️ Stock bajo: " + part.getName() + " tiene solo " + after
+        String message = "Stock bajo: " + part.getName() + " tiene solo " + after
                 + " unidades (mínimo: " + part.getMinStock() + ")";
         userRepository.findByRoleAndWorkspaceId(Role.MANAGER, workspaceId).forEach(manager ->
                 notificationService.createFor(manager.getId(), "LOW_STOCK", message, null));

@@ -39,14 +39,17 @@ public class NotificationService {
     public List<NotificationResponse> listForEmail(String email) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
-        return notificationRepository.findByRecipientUserIdOrRecipientUserIdIsNullOrderByCreatedAtDesc(user.getId()).stream()
+        return notificationRepository.findByRecipientUserIdOrderByCreatedAtDesc(user.getId()).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
     @Transactional
-    public NotificationResponse markRead(Long id) {
-        Notification n = notificationRepository.findById(id)
+    public NotificationResponse markRead(Long id, String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        // Solo el destinatario puede marcarla como leída.
+        Notification n = notificationRepository.findByIdAndRecipientUserId(id, user.getId())
                 .orElseThrow(() -> new NoSuchElementException("Notificación no encontrada con id " + id));
         n.setRead(true);
         return toResponse(notificationRepository.save(n));

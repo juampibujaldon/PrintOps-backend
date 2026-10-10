@@ -2,12 +2,14 @@
 package com.printops.demo.dto;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 
 // DTO para agregar una pieza usada a una orden (US-10). Si partId es null →
 // pieza externa (externalPart*).
 public record AddPartRequest(
         Long partId,
-        @NotNull(message = "quantity es obligatorio") Integer quantity,
+        @NotNull(message = "quantity es obligatorio")
+        @Positive(message = "quantity debe ser mayor a 0") Integer quantity,
         String externalPartName,
         String externalPartNumber,
         Double externalUnitPrice

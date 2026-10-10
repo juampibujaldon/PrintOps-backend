@@ -28,7 +28,9 @@ public class NotificationController {
     }
 
     @PatchMapping("/{id}/read")
-    public ResponseEntity<NotificationResponse> markRead(@PathVariable Long id) {
-        return ResponseEntity.ok(notificationService.markRead(id));
+    public ResponseEntity<NotificationResponse> markRead(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(notificationService.markRead(id, userDetails.getUsername()));
     }
 }

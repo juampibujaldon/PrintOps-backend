@@ -24,6 +24,11 @@ public class Quote {
     @Column(name = "client_name")
     private String clientName;
 
+    // Aislación multi-tenant: cada presupuesto pertenece a un workspace.
+    // Nullable para no romper filas legadas creadas antes de esta columna.
+    @Column(name = "workspace_id")
+    private Long workspaceId;
+
     @Column(name = "job_description")
     private String jobDescription;
 
@@ -180,6 +185,8 @@ public class Quote {
     public void setComponentWear(String componentWear) { this.componentWear = componentWear; }
     public Printer getPrinter() { return printer; }
     public void setPrinter(Printer printer) { this.printer = printer; }
+    public Long getWorkspaceId() { return workspaceId; }
+    public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
     public User getCreatedBy() { return createdBy; }
     public void setCreatedBy(User createdBy) { this.createdBy = createdBy; }
     public QuoteStatus getStatus() { return status; }

@@ -1,6 +1,11 @@
 // src/main/java/com/printops/demo/exception/GlobalExceptionHandler.java
 package com.printops.demo.exception;
 
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
+
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -117,9 +122,10 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Map<String, String>> handleDataIntegrity(DataIntegrityViolationException ex) {
         log.error("Violación de integridad en DB", ex);
-        String detail = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        // No se expone el detalle SQL al cliente (queda en el log).
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Map.of("error", "Conflicto de datos", "message", "Se violó una restricción de la base de datos: " + detail));
+                .body(Map.of("error", "Conflicto de datos",
+                        "message", "El registro entra en conflicto con datos existentes (por ejemplo, un valor duplicado)."));
     }
 
     // ERR-03: archivo demasiado grande → 413.
@@ -127,6 +133,44 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleMaxUpload(MaxUploadSizeExceededException ex) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
                 .body(Map.of("error", "Archivo demasiado grande", "message", "El archivo supera el tamaño máximo permitido (10MB)."));
+    }
+
+    // US-05: estas excepciones caían en el handler genérico y respondían 500.
+    @ExceptionHandler(InvalidStatusTransitionException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidTransition(InvalidStatusTransitionException ex) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", "Transición inválida", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenTransitionException.class)
+    public ResponseEntity<Map<String, String>> handleForbiddenTransition(ForbiddenTransitionException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "Acceso denegado", "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<Map<String, String>> handleAccessDenied(AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Map.of("error", "Acceso denegado", "message", "No tenés permisos para esta operación"));
+    }
+
+    // Parámetros de query/path con tipo incorrecto o faltantes → 400 (antes 500).
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, String>> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", "Parámetro inválido", "message", "Valor inválido para '" + ex.getName() + "'."));
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<Map<String, String>> handleMissingParam(MissingServletRequestParameterException ex) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", "Parámetro faltante", "message", "Falta el parámetro '" + ex.getParameterName() + "'."));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNoResource(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("error", "No encontrado", "message", "Recurso inexistente."));
     }
 
     @ExceptionHandler(NoSuchElementException.class)
@@ -141,7 +185,8 @@ public class GlobalExceptionHandler {
         // de errores como "No se puede guardar la impresora".
         log.error("Error no controlado", ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of("error", "Error interno del servidor", "message", ex.getMessage()));
+                .body(Map.of("error", "Error interno del servidor",
+                        "message", "Ocurrió un error inesperado. Intentá de nuevo."));
     }
 
     public record FieldValidationError(String field, String message) {}

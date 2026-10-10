@@ -17,12 +17,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AuthService {
+
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthService.class);
 
     private final AuthenticationManager authManager;
     private final JwtService jwtService;
@@ -46,6 +49,8 @@ public class AuthService {
 
     @Value("${app.base-url}")
     private String appBaseUrl;
+
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     // Rate limiting: IP -> intentos fallidos
     private final Map<String, Integer> failedAttempts = new ConcurrentHashMap<>();
@@ -132,6 +137,10 @@ public class AuthService {
             if (Instant.now().isAfter(invite.getExpiresAt())) {
                 throw new BadCredentialsException("La invitación expiró. Pedí una nueva al manager.");
             }
+            // La invitación es personal: solo sirve para el email invitado.
+            if (invite.getEmail() != null && !invite.getEmail().equalsIgnoreCase(email)) {
+                throw new BadCredentialsException("Esta invitación fue emitida para otro email.");
+            }
             user.setRole(Role.TECNICO);
             user.setWorkspaceId(invite.getWorkspaceId());
             invite.setAccepted(true);
@@ -173,7 +182,7 @@ public class AuthService {
     public void resendVerification(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
             if (!user.isEmailVerified()) {
-                String token = String.format("%06d", new java.util.Random().nextInt(1000000));
+                String token = String.format("%06d", RANDOM.nextInt(1_000_000));
                 user.setVerificationToken(token);
                 user.setVerificationTokenExpiry(Instant.now().plusSeconds(VERIFICATION_TOKEN_TTL_SECONDS));
                 userRepository.save(user);
@@ -228,6 +237,7 @@ public class AuthService {
         });
     }
 
+    @Transactional
     public void forgotPassword(String email) {
         userRepository.findByEmail(email).ifPresent(user -> {
             String resetToken = UUID.randomUUID().toString();
@@ -235,7 +245,12 @@ public class AuthService {
             user.setResetToken(resetToken);
             user.setResetTokenExpiry(expiry);
             userRepository.save(user);
-            emailService.sendPasswordResetEmail(email, resetToken, buildResetUrl(resetToken));
+            try {
+                emailService.sendPasswordResetEmail(email, resetToken, buildResetUrl(resetToken));
+            } catch (RuntimeException e) {
+                // Un 500 acá revelaría que el email existe; se loguea y se responde igual.
+                log.error("No se pudo enviar el email de reset a {}", email, e);
+            }
         });
         // Siempre responde OK para no revelar si el email existe
     }

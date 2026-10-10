@@ -1,9 +1,12 @@
 // src/main/java/com/printops/demo/dto/CreateOrderRequest.java
 package com.printops.demo.dto;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 
 import java.util.List;
 
@@ -19,11 +22,12 @@ public record CreateOrderRequest(
 
         String description,
 
+        @PositiveOrZero(message = "estimatedTimeMinutes no puede ser negativo")
         Integer estimatedTimeMinutes,
 
-        List<ChecklistItemInput> checklistItems,
+        List<@Valid ChecklistItemInput> checklistItems,
 
-        List<PartInput> parts
+        List<@Valid PartInput> parts
 ) {
     public record ChecklistItemInput(
             @NotBlank(message = "text es obligatorio") String text,
@@ -34,7 +38,8 @@ public record CreateOrderRequest(
     // Pieza usada. Si partId es null → pieza externa (externalPart*).
     public record PartInput(
             Long partId,
-            @NotNull(message = "quantity es obligatorio") Integer quantity,
+            @NotNull(message = "quantity es obligatorio")
+            @Positive(message = "quantity debe ser mayor a 0") Integer quantity,
             String externalPartName,
             String externalPartNumber,
             Double externalUnitPrice

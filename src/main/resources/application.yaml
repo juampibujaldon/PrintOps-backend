@@ -58,6 +58,6 @@ app:
 
 resend:
   # API key de Resend (no commitear el valor real; usar variable de entorno).
-  api-key: re_crdyzdWw_Fo47SX1iZrPgJ2fSf48P2vQn
+  api-key: ${RESEND_API_KEY:}
   # Remitente. Para pruebas podés usar el dominio de Resend "onboarding@resend.dev".
   from: ${RESEND_FROM:PrintOps <onboarding@resend.dev>}

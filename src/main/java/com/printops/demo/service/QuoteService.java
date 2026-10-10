@@ -1,6 +1,7 @@
 // src/main/java/com/printops/demo/service/QuoteService.java
 package com.printops.demo.service;
 
+import com.printops.demo.security.TenantContext;
 import com.printops.demo.dto.*;
 import com.printops.demo.entity.*;
 import com.printops.demo.repository.*;
@@ -52,7 +53,7 @@ public class QuoteService {
     @Transactional(readOnly = true)
     public QuoteResultsDTO calculate(QuoteCalculateRequest req) {
         CreateQuoteRequest r = toCreate(req);
-        Printer printer = r.printerId() != null ? printerRepository.findById(r.printerId()).orElse(null) : null;
+        Printer printer = findPrinter(r.printerId());
         Costs c = computeCosts(r);
         double totalHours = r.printingHours() * units(r.units());
         ComponentWearDTO wear = calculateWear(totalHours, r.filamentType(), printer);
@@ -69,6 +70,7 @@ public class QuoteService {
                 .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
         Quote q = new Quote();
         q.setCreatedBy(user);
+        q.setWorkspaceId(wsId());
         q.setStatus(QuoteStatus.DRAFT);
         applyInputs(q, r);
 
@@ -82,7 +84,7 @@ public class QuoteService {
                                        LocalDate from, LocalDate to, Long printerId) {
         LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
         LocalDateTime toDt = to != null ? to.atTime(23, 59, 59) : null;
-        return quoteRepository.search(status, blankToNull(clientName), printerId, fromDt, toDt)
+        return quoteRepository.search(wsId(), status, blankToNull(clientName), printerId, fromDt, toDt)
                 .stream().map(this::toResponse).toList();
     }
 
@@ -127,6 +129,7 @@ public class QuoteService {
 
         Quote q = new Quote();
         q.setCreatedBy(orig.getCreatedBy());
+        q.setWorkspaceId(orig.getWorkspaceId());
         q.setStatus(QuoteStatus.DRAFT);
         applyInputs(q, r);
 
@@ -256,6 +259,8 @@ public class QuoteService {
         order.setAssignedTo(q.getCreatedBy());
         order.setType(OrderType.CORRECTIVE);
         order.setStatus(OrderStatus.PENDING);
+        // Sin workspace la orden violaba el NOT NULL y hacía fallar el paso a SENT.
+        order.setWorkspaceId(printer.getWorkspaceId() != null ? printer.getWorkspaceId() : q.getWorkspaceId());
         order.setDescription("Mantenimiento correctivo automático: " + componentName
                 + " superó el 100% de vida útil (presupuesto " + q.getQuoteNumber() + ").");
         orderRepository.save(order);
@@ -288,11 +293,7 @@ public class QuoteService {
         q.setClientName(blankToNull(r.clientName()));
         q.setJobDescription(blankToNull(r.jobDescription()));
 
-        if (r.printerId() != null) {
-            q.setPrinter(printerRepository.findById(r.printerId()).orElse(null));
-        } else {
-            q.setPrinter(null);
-        }
+        q.setPrinter(findPrinter(r.printerId()));
 
         Costs c = computeCosts(r);
         q.setFilamentCost(c.filamentCost());
@@ -320,8 +321,19 @@ public class QuoteService {
         }
     }
 
+    private Long wsId() {
+        return TenantContext.getCurrentWorkspaceId();
+    }
+
+    // Solo impresoras del workspace actual; un id ajeno se ignora.
+    private Printer findPrinter(Long printerId) {
+        return printerId != null
+                ? printerRepository.findByIdAndWorkspaceId(printerId, wsId()).orElse(null)
+                : null;
+    }
+
     private Quote find(Long id) {
-        return quoteRepository.findById(id)
+        return quoteRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Presupuesto no encontrado con id " + id));
     }
 

@@ -143,8 +143,13 @@ public class WorkspaceService {
         invite.setAccepted(false);
         inviteRepository.save(invite);
 
-        emailService.sendInvitationEmail(inviteEmail, token, ws.getName());
-        log.info("Invitación enviada a {} para el taller {} (token={})", inviteEmail, ws.getName(), token);
+        try {
+            emailService.sendInvitationEmail(inviteEmail, token, ws.getName());
+        } catch (RuntimeException e) {
+            // El manager recibe el código en la respuesta: un fallo de email no debe perder la invitación.
+            log.error("No se pudo enviar el email de invitación a {}", inviteEmail, e);
+        }
+        log.info("Invitación creada para {} en el taller {}", inviteEmail, ws.getName());
 
         return token;
     }
@@ -162,6 +167,7 @@ public class WorkspaceService {
         if (user.getRole() != Role.MANAGER) {
             throw new IllegalArgumentException("Solo un manager puede editar el layout del taller.");
         }
+        validateCanvasLayout(layoutJson);
         Workspace ws = resolveWorkspace(email);
         ws.setCanvasLayout(layoutJson);
         workspaceRepository.save(ws);
@@ -170,6 +176,22 @@ public class WorkspaceService {
     }
 
     // ── Helpers ──
+
+    // El layout se guarda tal cual y luego se devuelve a la app: se exige un objeto
+    // JSON con nodes/edges y un tamaño acotado para no persistir basura.
+    private void validateCanvasLayout(String layoutJson) {
+        if (layoutJson == null || layoutJson.isBlank() || layoutJson.length() > 200_000) {
+            throw new IllegalArgumentException("Layout de taller inválido.");
+        }
+        try {
+            tools.jackson.databind.JsonNode node = new tools.jackson.databind.ObjectMapper().readTree(layoutJson);
+            if (!node.isObject() || !node.path("nodes").isArray() || !node.path("edges").isArray()) {
+                throw new IllegalArgumentException("El layout debe tener 'nodes' y 'edges'.");
+            }
+        } catch (tools.jackson.core.JacksonException e) {
+            throw new IllegalArgumentException("El layout no es un JSON válido.");
+        }
+    }
 
     private Workspace resolveWorkspace(String email) {
         User user = userRepository.findByEmail(email)

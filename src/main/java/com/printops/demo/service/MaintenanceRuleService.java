@@ -120,7 +120,7 @@ public class MaintenanceRuleService {
             if (!hasOpenOrder) {
                 MaintenanceOrder order = createOrder(rule, printer);
                 updateSnapshotAfterTrigger(rule, printer);
-                notifyTechnicians(
+                notifyTechnicians(rule.getWorkspaceId(),
                         "Mantenimiento preventivo requerido para la impresora " + printerName(printer)
                                 + " (regla #" + rule.getId() + "). Orden #" + order.getId() + " generada.",
                         order.getId());
@@ -163,7 +163,7 @@ public class MaintenanceRuleService {
         if (rule.getAlertSentAt() != null && rule.getAlertSentAt().isEqual(LocalDate.now())) {
             return;
         }
-        notifyTechnicians(
+        notifyTechnicians(rule.getWorkspaceId(),
                 "Próximo mantenimiento de " + printerName(printer) + " en " + daysUntil + " día(s) (regla #" + rule.getId() + ").",
                 null);
         rule.setAlertSentAt(LocalDate.now());
@@ -181,7 +181,7 @@ public class MaintenanceRuleService {
             return;
         }
         String unit = rule.getTriggerType() == TriggerType.USAGE_HOURS ? "hs de uso" : "g de filamento";
-        notifyTechnicians(
+        notifyTechnicians(rule.getWorkspaceId(),
                 "La impresora " + printerName(printer) + " está por alcanzar el umbral de mantenimiento "
                         + "(regla #" + rule.getId() + ", " + Math.round(progress) + "% de " + rule.getTriggerValue() + " " + unit + ").",
                 null);
@@ -220,9 +220,9 @@ public class MaintenanceRuleService {
         ruleRepository.save(rule);
     }
 
-    // ── Notificaciones push a todos los técnicos ─────────────────────────────
-    private void notifyTechnicians(String message, Long orderId) {
-        userRepository.findByRole(Role.TECNICO).forEach(tech ->
+    // ── Notificaciones a los técnicos del workspace de la regla ──────────────
+    private void notifyTechnicians(Long workspaceId, String message, Long orderId) {
+        userRepository.findByRoleAndWorkspaceId(Role.TECNICO, workspaceId).forEach(tech ->
                 notificationService.createFor(tech.getId(), "MAINTENANCE_RULE", message, orderId));
     }
 

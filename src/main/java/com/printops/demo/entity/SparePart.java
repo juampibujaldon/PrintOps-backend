@@ -11,7 +11,11 @@ import java.time.Instant;
 
 // Repuesto del inventario (US-10). Reemplaza a la antigua entidad Part.
 @Entity
-@Table(name = "spare_parts")
+// El número de parte es único por workspace (no global), para que dos talleres
+// puedan usar el mismo código.
+@Table(name = "spare_parts",
+        uniqueConstraints = @UniqueConstraint(name = "uk_spare_part_ws_number",
+                columnNames = {"workspace_id", "part_number"}))
 public class SparePart {
 
     @Id
@@ -22,7 +26,7 @@ public class SparePart {
     @NotBlank
     private String name;
 
-    @Column(nullable = false, unique = true)
+    @Column(name = "part_number", nullable = false)
     @NotBlank
     private String partNumber;
 

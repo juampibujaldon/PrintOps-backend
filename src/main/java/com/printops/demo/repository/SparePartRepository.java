@@ -16,9 +16,7 @@ public interface SparePartRepository extends JpaRepository<SparePart, Long> {
 
     Optional<SparePart> findByIdAndWorkspaceId(Long id, Long workspaceId);
 
-    Optional<SparePart> findByPartNumber(String partNumber);
-
-    boolean existsByPartNumber(String partNumber);
+    boolean existsByPartNumberAndWorkspaceId(String partNumber, Long workspaceId);
 
     @Query("SELECT p FROM SparePart p WHERE p.workspaceId = :workspaceId AND p.stock <= p.minStock ORDER BY p.name ASC")
     List<SparePart> findLowStock(@Param("workspaceId") Long workspaceId);

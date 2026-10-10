@@ -8,6 +8,7 @@ import com.printops.demo.entity.PrinterStatus;
 import com.printops.demo.entity.User;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.security.TenantContext;
+import com.printops.demo.util.UploadFiles;
 import com.printops.demo.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,7 +25,6 @@ import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.UUID;
 
 @Service
 public class PrinterService {
@@ -79,7 +79,7 @@ public class PrinterService {
         printer.setQrCodeData("printops://printer/" + dto.serialNumber());
 
         if (photo != null && !photo.isEmpty()) {
-            String fileName = UUID.randomUUID() + "_" + photo.getOriginalFilename();
+            String fileName = UploadFiles.safeImageFileName(photo);
             try {
                 Path targetLocation = Paths.get(uploadDir).resolve(fileName);
                 Files.copy(photo.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);

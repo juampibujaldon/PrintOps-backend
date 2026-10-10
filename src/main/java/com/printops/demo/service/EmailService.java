@@ -56,7 +56,7 @@ public class EmailService {
                   <p style="margin:24px 0;font-size:22px;font-weight:bold;letter-spacing:2px">%s</p>
                   <p style="color:#666;font-size:12px">El código expira en 7 días. Si no esperabas esta invitación, ignorá este mensaje.</p>
                 </div>
-                """.formatted(workspaceName != null ? workspaceName : "PrintOps", token);
+                """.formatted(escapeHtml(workspaceName != null ? workspaceName : "PrintOps"), escapeHtml(token));
         send(to, subject, html);
     }
 
@@ -120,6 +120,13 @@ public class EmailService {
                 + "\"subject\":\"" + escape(subject) + "\","
                 + "\"html\":\"" + escape(html) + "\""
                 + "}";
+    }
+
+    // El nombre del taller lo escribe el usuario: se escapa antes de meterlo en el HTML.
+    private String escapeHtml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                .replace("\"", "&quot;").replace("'", "&#39;");
     }
 
     private String escape(String s) {
