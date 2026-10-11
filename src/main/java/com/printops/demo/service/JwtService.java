@@ -4,6 +4,7 @@ package com.printops.demo.service;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,19 @@ public class JwtService {
 
     @Value("${jwt.expiration}")
     private long expiration;
+
+    // Falla al arrancar con un mensaje claro si la clave no sirve. Antes el backend
+    // levantaba igual y recién explotaba al firmar el token en cada login válido.
+    @PostConstruct
+    void validateSecret() {
+        try {
+            getSigningKey();
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("JWT_SECRET inválida: tiene que ser Base64 de al menos 32 bytes (256 bits). "
+                    + "Generala con `openssl rand -base64 32`, o en desarrollo borrá/comentá JWT_SECRET del .env "
+                    + "para usar la de application-dev.yaml. Detalle: " + e.getMessage(), e);
+        }
+    }
 
     public String generateAccessToken(String email, String role, Long workspaceId) {
         return Jwts.builder()

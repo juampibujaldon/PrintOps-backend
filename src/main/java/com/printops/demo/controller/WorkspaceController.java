@@ -67,13 +67,15 @@ public class WorkspaceController {
     // ── Invites ──
 
     @PostMapping("/invites")
-    public ResponseEntity<Map<String, String>> invite(
+    public ResponseEntity<Map<String, Object>> invite(
             @AuthenticationPrincipal UserDetails userDetails,
             @Valid @RequestBody InviteRequest request) {
-        String token = workspaceService.invite(userDetails.getUsername(), request.email());
-        return ResponseEntity.ok(Map.of(
-                "message", "Invitación enviada a " + request.email(),
-                "inviteToken", token
-        ));
+        // El código de invitación no viaja en la respuesta: solo le llega al técnico por email.
+        boolean sent = workspaceService.invite(userDetails.getUsername(), request.email());
+        String message = sent
+                ? "Le enviamos a " + request.email() + " un email con el código para unirse al taller."
+                : "La invitación quedó creada, pero no se pudo enviar el email a " + request.email()
+                        + ". Revisá la configuración de email e invitalo de nuevo.";
+        return ResponseEntity.ok(Map.of("message", message, "emailSent", sent));
     }
 }

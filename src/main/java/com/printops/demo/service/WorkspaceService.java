@@ -117,7 +117,9 @@ public class WorkspaceService {
     // El manager invita a un técnico por email. Devuelve el token (útil para
     // desarrollo; en producción solo se envía por email).
     @Transactional
-    public String invite(String managerEmail, String inviteEmail) {
+    // Crea la invitación y manda el código por email. Devuelve si el email salió:
+    // el código nunca se devuelve a la app, solo le llega al técnico.
+    public boolean invite(String managerEmail, String inviteEmail) {
         User manager = userRepository.findByEmail(managerEmail)
                 .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
 
@@ -143,15 +145,17 @@ public class WorkspaceService {
         invite.setAccepted(false);
         inviteRepository.save(invite);
 
+        boolean sent = false;
         try {
             emailService.sendInvitationEmail(inviteEmail, token, ws.getName());
+            // Sin RESEND_API_KEY el email no sale (en dev queda en el log).
+            sent = emailService.isConfigured();
         } catch (RuntimeException e) {
-            // El manager recibe el código en la respuesta: un fallo de email no debe perder la invitación.
             log.error("No se pudo enviar el email de invitación a {}", inviteEmail, e);
         }
-        log.info("Invitación creada para {} en el taller {}", inviteEmail, ws.getName());
+        log.info("Invitación creada para {} en el taller {} (email enviado: {})", inviteEmail, ws.getName(), sent);
 
-        return token;
+        return sent;
     }
 
     @Transactional(readOnly = true)

@@ -33,6 +33,7 @@ public class QuoteService {
     private final StatusHistoryRepository historyRepository;
     private final NotificationService notificationService;
     private final QuotePdfService quotePdfService;
+    private final PrinterComponentService componentService;
 
     public QuoteService(QuoteRepository quoteRepository,
                         PrinterRepository printerRepository,
@@ -40,7 +41,8 @@ public class QuoteService {
                         MaintenanceOrderRepository orderRepository,
                         StatusHistoryRepository historyRepository,
                         NotificationService notificationService,
-                        QuotePdfService quotePdfService) {
+                        QuotePdfService quotePdfService,
+                        PrinterComponentService componentService) {
         this.quoteRepository = quoteRepository;
         this.printerRepository = printerRepository;
         this.userRepository = userRepository;
@@ -48,6 +50,7 @@ public class QuoteService {
         this.historyRepository = historyRepository;
         this.notificationService = notificationService;
         this.quotePdfService = quotePdfService;
+        this.componentService = componentService;
     }
 
     // ── Cálculo en tiempo real (sin persistir) ──────────────────────────────
@@ -191,26 +194,23 @@ public class QuoteService {
     }
 
     // Vida útil base por componente (horas). La boquilla depende del filamento.
+    // Desgaste de cada componente = horas desde que se instaló el repuesto + horas
+    // de este trabajo, contra su vida útil (según la calidad del repuesto).
     public ComponentWearDTO calculateWear(double totalHours, FilamentType type, Printer printer) {
-        double prev = printer != null && printer.getTotalPrintingHours() != null
-                ? printer.getTotalPrintingHours() : 0.0;
-        double hoursAfter = prev + totalHours;
-
         return new ComponentWearDTO(
-                componentStatus(nozzleLifespan(type), hoursAfter),
-                componentStatus(800.0, hoursAfter),
-                componentStatus(1500.0, hoursAfter),
-                componentStatus(2000.0, hoursAfter),
-                componentStatus(3000.0, hoursAfter));
+                componentStatus(printer, ComponentType.NOZZLE, type, totalHours),
+                componentStatus(printer, ComponentType.HOTEND, type, totalHours),
+                componentStatus(printer, ComponentType.BELTS, type, totalHours),
+                componentStatus(printer, ComponentType.BEARINGS, type, totalHours),
+                componentStatus(printer, ComponentType.HEATBED, type, totalHours));
     }
 
-    private double nozzleLifespan(FilamentType type) {
-        return switch (type) {
-            case PLA, PETG -> 500.0;
-            case ABS, ASA -> 400.0;
-            case TPU -> 300.0;
-            case OTHER -> 200.0;
-        };
+    private ComponentWearDTO.ComponentStatus componentStatus(Printer printer, ComponentType component,
+                                                             FilamentType filament, double jobHours) {
+        PrinterComponent c = componentService.forPrinterOrDefault(printer, component);
+        double lifespan = componentService.lifespanHours(c, filament);
+        double hoursAfter = componentService.hoursSinceInstall(c, printer) + jobHours;
+        return componentStatus(lifespan, hoursAfter);
     }
 
     private ComponentWearDTO.ComponentStatus componentStatus(double lifespan, double hoursAfter) {
@@ -236,26 +236,45 @@ public class QuoteService {
         handleWearAlerts(q, printer, wear);
     }
 
+    // Una alerta por repuesto (al pasar el 90%) y una sola orden correctiva abierta
+    // por repuesto (al pasar el 100%). Antes se repetían en cada presupuesto, porque
+    // el desgaste nunca se reseteaba. Se vuelven a habilitar al reemplazar el repuesto.
     private void handleWearAlerts(Quote q, Printer printer, ComponentWearDTO wear) {
         ComponentWearDTO.ComponentStatus[] comps = {
                 wear.nozzle(), wear.hotend(), wear.belts(), wear.bearings(), wear.heatbed()};
+        ComponentType[] types = {
+                ComponentType.NOZZLE, ComponentType.HOTEND, ComponentType.BELTS,
+                ComponentType.BEARINGS, ComponentType.HEATBED};
         String[] names = {"boquilla", "hotend", "correas", "rodamientos", "cama caliente"};
         Long recipient = q.getCreatedBy() != null ? q.getCreatedBy().getId() : null;
 
         for (int i = 0; i < comps.length; i++) {
-            ComponentWearDTO.ComponentStatus c = comps[i];
-            if (c.percent() > 100.0) {
-                createCorrectiveOrder(q, printer, names[i], recipient);
-            } else if (c.percent() >= 90.0) {
+            ComponentWearDTO.ComponentStatus status = comps[i];
+            if (status.percent() < 90.0) continue;
+            PrinterComponent component = componentService.getOrCreate(printer.getId(), types[i]);
+
+            if (status.percent() > 100.0) {
+                if (!hasOpenOrder(component.getOpenOrderId())) {
+                    component.setOpenOrderId(createCorrectiveOrder(q, printer, names[i], recipient));
+                }
+            } else if (!component.isWearAlertSent()) {
                 notificationService.createFor(recipient, "WEAR_ALERT",
                         "La " + names[i] + " de la impresora " + printer.getSerialNumber()
-                                + " superó el " + (int) c.percent() + "% de vida útil (presupuesto "
+                                + " superó el " + (int) status.percent() + "% de vida útil (presupuesto "
                                 + q.getQuoteNumber() + ").", null);
             }
+            component.setWearAlertSent(true);
         }
     }
 
-    private void createCorrectiveOrder(Quote q, Printer printer, String componentName, Long recipient) {
+    private boolean hasOpenOrder(Long orderId) {
+        if (orderId == null) return false;
+        return orderRepository.findById(orderId)
+                .map(o -> o.getStatus() != OrderStatus.COMPLETED && o.getStatus() != OrderStatus.CANCELLED)
+                .orElse(false);
+    }
+
+    private Long createCorrectiveOrder(Quote q, Printer printer, String componentName, Long recipient) {
         MaintenanceOrder order = new MaintenanceOrder();
         order.setPrinter(printer);
         order.setAssignedTo(q.getCreatedBy());
@@ -276,6 +295,7 @@ public class QuoteService {
         notificationService.createFor(recipient, "ORDER_CREATED",
                 "Orden correctiva #" + order.getId() + " creada automáticamente por desgaste de "
                         + componentName + " en " + printer.getSerialNumber() + ".", order.getId());
+        return order.getId();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
