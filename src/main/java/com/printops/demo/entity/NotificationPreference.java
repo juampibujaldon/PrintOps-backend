@@ -27,7 +27,8 @@ public class NotificationPreference {
     @Column(name = "daily_summary", nullable = false, columnDefinition = "BOOLEAN DEFAULT false")
     private boolean dailySummary = false;
 
-    @Column(name = "daily_summary_time", columnDefinition = "VARCHAR(5) DEFAULT '09:00'")
+    // El default vive en Java: un DEFAULT en columnDefinition rompe el ALTER de ddl-auto=update.
+    @Column(name = "daily_summary_time", length = 5)
     private String dailySummaryTime = "09:00";
 
     public NotificationPreference() {}

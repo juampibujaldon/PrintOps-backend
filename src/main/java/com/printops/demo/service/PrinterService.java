@@ -107,10 +107,25 @@ public class PrinterService {
     }
 
     @Transactional(readOnly = true)
+    public PrinterResponseDTO getById(Long id) {
+        return printerRepository.findByIdAndWorkspaceId(id, wsId())
+                .map(this::toResponse)
+                .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + id));
+    }
+
+    @Transactional(readOnly = true)
     public PrinterResponseDTO getBySerialNumber(String serialNumber) {
         return printerRepository.findBySerialNumberAndWorkspaceId(serialNumber, wsId())
                 .map(this::toResponse)
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con serie " + serialNumber));
+    }
+
+    @Transactional
+    public PrinterResponseDTO updateStatus(Long id, PrinterStatus status) {
+        Printer printer = printerRepository.findByIdAndWorkspaceId(id, wsId())
+                .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + id));
+        printer.setStatus(status);
+        return toResponse(printerRepository.save(printer));
     }
 
     @Transactional

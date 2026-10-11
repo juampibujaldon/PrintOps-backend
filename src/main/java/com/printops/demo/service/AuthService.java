@@ -196,10 +196,6 @@ public class AuthService {
         return appBaseUrl + "/api/auth/verify-email?token=" + token;
     }
 
-    private String buildResetUrl(String token) {
-        return "printops://reset-password?token=" + token;
-    }
-
     @Transactional
     public AuthResponse refresh(String rawRefreshToken, String deviceId) {
         RefreshToken refreshToken = refreshTokenRepository.findByToken(rawRefreshToken)
@@ -246,7 +242,7 @@ public class AuthService {
             user.setResetTokenExpiry(expiry);
             userRepository.save(user);
             try {
-                emailService.sendPasswordResetEmail(email, resetToken, buildResetUrl(resetToken));
+                emailService.sendPasswordResetEmail(email, resetToken);
             } catch (RuntimeException e) {
                 // Un 500 acá revelaría que el email existe; se loguea y se responde igual.
                 log.error("No se pudo enviar el email de reset a {}", email, e);

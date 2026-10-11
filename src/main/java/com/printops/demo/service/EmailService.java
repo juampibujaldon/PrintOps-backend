@@ -1,6 +1,9 @@
 // src/main/java/com/printops/demo/service/EmailService.java
 package com.printops.demo.service;
 
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +20,8 @@ import java.net.http.HttpResponse;
 public class EmailService {
 
     private static final String RESEND_EMAILS_URL = "https://api.resend.com/emails";
+    private static final String TEST_SENDER_DOMAIN = "resend.dev";
+    private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final HttpClient httpClient;
 
@@ -26,8 +31,29 @@ public class EmailService {
     @Value("${resend.from}")
     private String from;
 
+    @Value("${resend.log-when-disabled:true}")
+    private boolean logWhenDisabled;
+
     public EmailService() {
         this.httpClient = HttpClient.newHttpClient();
+    }
+
+    // Deja claro al arrancar cómo se van a comportar los emails.
+    @PostConstruct
+    void logConfiguration() {
+        if (!isConfigured()) {
+            log.warn("Resend NO configurado (RESEND_API_KEY vacía): los emails no se envían{}.",
+                    logWhenDisabled ? "; su contenido se escribe en este log" : "");
+        } else if (from != null && from.contains(TEST_SENDER_DOMAIN)) {
+            log.warn("Resend en modo prueba (remitente {}): solo entrega al email de tu cuenta de Resend. "
+                    + "Para enviar a cualquier destinatario verificá un dominio y configurá RESEND_FROM.", from);
+        } else {
+            log.info("Resend configurado. Remitente: {}", from);
+        }
+    }
+
+    public boolean isConfigured() {
+        return apiKey != null && !apiKey.isBlank();
     }
 
     public void sendVerificationEmail(String to, String code) {
@@ -60,31 +86,33 @@ public class EmailService {
         send(to, subject, html);
     }
 
-    // Email para restablecer la contraseña (contiene el token y el enlace con el mismo token).
-    public void sendPasswordResetEmail(String to, String token, String resetUrl) {
+    // Email para restablecer la contraseña. Solo lleva el código: la app no tiene
+    // deep linking y los clientes de mail bloquean los enlaces printops://.
+    public void sendPasswordResetEmail(String to, String token) {
         String subject = "Restablecé tu contraseña en PrintOps";
         String html = """
                 <div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px">
                   <h2 style="color:#283618">Restablecer contraseña</h2>
                   <p>Recibimos una solicitud para restablecer la contraseña de tu cuenta de PrintOps.</p>
-                  <p style="margin:24px 0">
-                    <a href="%s"
-                       style="background-color:#283618;color:#ffffff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold">
-                       Restablecer mi contraseña
-                    </a>
-                  </p>
-                  <p style="color:#666">Si el enlace no funciona, ingresá este código en la app:</p>
-                  <p style="margin:24px 0;font-size:16px;font-weight:bold;letter-spacing:1px">%s</p>
+                  <p>Copiá este código y pegalo en la app, en <b>Recuperar contraseña</b>:</p>
+                  <p style="margin:24px 0;padding:16px;background:#f2f2f7;border-radius:8px;font-family:monospace;font-size:15px;font-weight:bold;text-align:center;word-break:break-all">%s</p>
                   <p style="color:#666;font-size:12px">
-                    Si no solicitaste este cambio, ignorá este mensaje. El enlace expira en 1 hora.
+                    Si no solicitaste este cambio, ignorá este mensaje. El código expira en 1 hora.
                   </p>
                 </div>
-                """.formatted(resetUrl, token);
+                """.formatted(escapeHtml(token));
         send(to, subject, html);
     }
 
     public void send(String to, String subject, String html) {
-        if (apiKey == null || apiKey.isBlank()) {
+        if (!isConfigured()) {
+            // Modo desarrollo: sin key no se envía, pero se deja el contenido en el
+            // log para poder seguir el flujo (código de invitación / reset).
+            if (logWhenDisabled) {
+                log.warn("[EMAIL NO ENVIADO — Resend sin configurar] Para: {} | Asunto: {} | Contenido: {}",
+                        to, subject, toPlainText(html));
+                return;
+            }
             throw new IllegalStateException("RESEND_API_KEY no está configurada.");
         }
 
@@ -102,14 +130,22 @@ public class EmailService {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() >= 400) {
-                throw new RuntimeException("Resend devolvió " + response.statusCode() + ": " + response.body());
+                String hint = response.statusCode() == 403 && from != null && from.contains(TEST_SENDER_DOMAIN)
+                        ? " (con el remitente de prueba de Resend solo se puede enviar al email de tu cuenta)"
+                        : "";
+                throw new RuntimeException("Resend devolvió " + response.statusCode() + hint + ": " + response.body());
             }
+            log.info("Email enviado a {} ({})", to, subject);
         } catch (IOException e) {
             throw new RuntimeException("No se pudo enviar el email.", e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("El envío del email fue interrumpido.", e);
         }
+    }
+
+    private String toPlainText(String html) {
+        return html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
     }
 
     // Arma el payload JSON de Resend escapando correctamente los strings.

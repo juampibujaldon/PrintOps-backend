@@ -8,6 +8,7 @@ import com.printops.demo.dto.PartUsageSummaryDTO;
 import com.printops.demo.dto.PrinterHistoryDTO;
 import com.printops.demo.dto.PrinterMetricsDTO;
 import com.printops.demo.dto.PrinterResponseDTO;
+import com.printops.demo.dto.UpdatePrinterStatusRequest;
 import com.printops.demo.entity.OrderType;
 import com.printops.demo.service.PrinterHistoryService;
 import com.printops.demo.service.PrinterService;
@@ -63,6 +64,18 @@ public class PrinterController {
     @GetMapping("/by-serial/{serialNumber}")
     public ResponseEntity<PrinterResponseDTO> getBySerialNumber(@PathVariable String serialNumber) {
         return ResponseEntity.ok(printerService.getBySerialNumber(serialNumber));
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<PrinterResponseDTO> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(printerService.getById(id));
+    }
+
+    @PatchMapping("/{id}/status")
+    public ResponseEntity<PrinterResponseDTO> updateStatus(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdatePrinterStatusRequest request) {
+        return ResponseEntity.ok(printerService.updateStatus(id, request.status()));
     }
 
     // FIX 4: actualizar fecha de próximo mantenimiento al cerrar una orden.

@@ -33,7 +33,8 @@ public class Workspace {
     @Column(name = "logo_url")
     private String logoUrl;
 
-    @Column(nullable = false, columnDefinition = "VARCHAR(3) DEFAULT 'ARS'")
+    // El default vive en Java: un DEFAULT en columnDefinition rompe el ALTER de ddl-auto=update.
+    @Column(nullable = false, length = 3)
     private String currency = "ARS";
 
     // ── Valores por defecto del presupuesto ──

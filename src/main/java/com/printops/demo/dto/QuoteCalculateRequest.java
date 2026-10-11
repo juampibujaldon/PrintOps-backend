@@ -41,7 +41,8 @@ public record QuoteCalculateRequest(
 
         @NotNull(message = "marginPercent es obligatorio")
         @Min(value = 1, message = "marginPercent debe ser al menos 1")
-        @Max(value = 100, message = "marginPercent no puede superar 100")
+        // En impresión 3D es habitual cobrar 150–300% sobre el costo; 1000% evita valores absurdos.
+        @Max(value = 1000, message = "marginPercent no puede superar 1000")
         Double marginPercent,
 
         @Min(value = 0, message = "discountPercent no puede ser negativo")

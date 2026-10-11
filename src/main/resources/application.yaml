@@ -3,6 +3,11 @@ spring:
   application:
     name: PrintOps
 
+  # Carga el `.env` de la raíz del proyecto (si existe) como propiedades, así
+  # RESEND_API_KEY, DB_PASSWORD, etc. funcionan sin exportarlas en la terminal.
+  config:
+    import: optional:file:.env[.properties]
+
   # US-06: habilita la ejecución del scheduler de mantenimiento preventivo.
   task:
     scheduling:
@@ -61,3 +66,6 @@ resend:
   api-key: ${RESEND_API_KEY:}
   # Remitente. Para pruebas podés usar el dominio de Resend "onboarding@resend.dev".
   from: ${RESEND_FROM:PrintOps <onboarding@resend.dev>}
+  # Sin API key, el contenido de los emails (códigos incluidos) se escribe en el
+  # log para poder probar los flujos en desarrollo. En producción: false.
+  log-when-disabled: ${EMAIL_LOG_WHEN_DISABLED:true}

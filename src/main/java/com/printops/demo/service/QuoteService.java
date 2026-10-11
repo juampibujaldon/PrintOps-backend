@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -82,8 +83,8 @@ public class QuoteService {
     @Transactional(readOnly = true)
     public List<QuoteResponseDTO> list(QuoteStatus status, String clientName,
                                        LocalDate from, LocalDate to, Long printerId) {
-        LocalDateTime fromDt = from != null ? from.atStartOfDay() : null;
-        LocalDateTime toDt = to != null ? to.atTime(23, 59, 59) : null;
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : LocalDateTime.of(1970, 1, 1, 0, 0);
+        LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : LocalDateTime.of(9999, 12, 31, 23, 59, 59);
         return quoteRepository.search(wsId(), status, blankToNull(clientName), printerId, fromDt, toDt)
                 .stream().map(this::toResponse).toList();
     }
@@ -108,8 +109,9 @@ public class QuoteService {
         Quote q = find(id);
         QuoteStatus from = q.getStatus();
         validateTransition(from, to);
-        // Al salir de DRAFT se aplica el desgaste real sobre la impresora.
-        if (from == QuoteStatus.DRAFT && to == QuoteStatus.SENT) {
+        // Al salir de DRAFT (enviado o aceptado directamente) se aplica el
+        // desgaste real sobre la impresora.
+        if (from == QuoteStatus.DRAFT) {
             applyWear(q);
         }
         q.setStatus(to);
@@ -312,9 +314,11 @@ public class QuoteService {
 
     private void validateTransition(QuoteStatus from, QuoteStatus to) {
         boolean allowed = switch (from) {
-            case DRAFT -> to == QuoteStatus.SENT;
+            // Aceptado directo: el cliente confirma sin que se envíe el presupuesto.
+            case DRAFT -> to == QuoteStatus.SENT || to == QuoteStatus.ACCEPTED;
             case SENT -> to == QuoteStatus.ACCEPTED || to == QuoteStatus.REJECTED;
-            case ACCEPTED, REJECTED -> false;
+            case ACCEPTED -> to == QuoteStatus.PAID;
+            case REJECTED, PAID -> false;
         };
         if (!allowed) {
             throw new IllegalArgumentException("Transición no permitida de " + from + " a " + to + ".");
