@@ -1,0 +1,14 @@
+# src/main/resources/application-dev.yaml
+# SOLO DESARROLLO LOCAL. Se activa por defecto (spring.profiles.default: dev).
+# Estos valores no sirven para producción: allá se usa SPRING_PROFILES_ACTIVE=prod
+# y las variables de entorno DB_PASSWORD / JWT_SECRET (sin estos fallbacks).
+spring:
+  datasource:
+    password: ${DB_PASSWORD:GoodNews}
+
+jwt:
+  secret: ${JWT_SECRET:YV92ZXJ5X2xvbmdfc3VwZXJfc2VjcmV0X2tleV9mb3Jfand0X3NpZ25pbmdfd2hpY2hfbmVlZHNfdG9fYmVfMjU2X2JpdHM=}
+
+resend:
+  # Sin RESEND_API_KEY, el contenido de los emails (códigos) se escribe en el log.
+  log-when-disabled: ${EMAIL_LOG_WHEN_DISABLED:true}

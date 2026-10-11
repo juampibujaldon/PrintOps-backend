@@ -4,7 +4,9 @@ package com.printops.demo.service;
 import com.printops.demo.dto.AuthResponse;
 import com.printops.demo.dto.SessionInfo;
 import com.printops.demo.entity.*;
+import com.printops.demo.exception.EmailAlreadyRegisteredException;
 import com.printops.demo.exception.EmailNotVerifiedException;
+import com.printops.demo.exception.InvalidInviteException;
 import com.printops.demo.repository.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -117,7 +119,7 @@ public class AuthService {
     @Transactional
     public void register(String email, String password, String inviteToken, String workspaceName) {
         if (userRepository.findByEmail(email).isPresent()) {
-            throw new BadCredentialsException("El email ya está registrado");
+            throw new EmailAlreadyRegisteredException("El email ya está registrado. Iniciá sesión o recuperá tu contraseña.");
         }
 
         User user = new User();
@@ -130,16 +132,20 @@ public class AuthService {
         // Sin inviteToken → MANAGER que crea su propio workspace.
         if (inviteToken != null && !inviteToken.isBlank()) {
             WorkspaceInvite invite = inviteRepository.findByToken(inviteToken)
-                    .orElseThrow(() -> new BadCredentialsException("Código de invitación inválido."));
+                    .orElseThrow(() -> new InvalidInviteException(InvalidInviteException.Reason.NOT_FOUND,
+                            "El código de invitación no existe. Revisá que esté completo."));
             if (invite.isAccepted()) {
-                throw new BadCredentialsException("Esta invitación ya fue usada.");
+                throw new InvalidInviteException(InvalidInviteException.Reason.USED,
+                        "Esta invitación ya fue usada.");
             }
             if (Instant.now().isAfter(invite.getExpiresAt())) {
-                throw new BadCredentialsException("La invitación expiró. Pedí una nueva al manager.");
+                throw new InvalidInviteException(InvalidInviteException.Reason.EXPIRED,
+                        "La invitación expiró. Pedí una nueva al administrador del taller.");
             }
             // La invitación es personal: solo sirve para el email invitado.
             if (invite.getEmail() != null && !invite.getEmail().equalsIgnoreCase(email)) {
-                throw new BadCredentialsException("Esta invitación fue emitida para otro email.");
+                throw new InvalidInviteException(InvalidInviteException.Reason.WRONG_EMAIL,
+                        "Esta invitación fue emitida para otro email.");
             }
             user.setRole(Role.TECNICO);
             user.setWorkspaceId(invite.getWorkspaceId());

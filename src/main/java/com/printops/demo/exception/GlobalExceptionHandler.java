@@ -28,6 +28,24 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    // Registro con invitación inválida → 400 con `code` para que la app muestre
+    // la pantalla correspondiente (no es un problema de credenciales).
+    @ExceptionHandler(InvalidInviteException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidInvite(InvalidInviteException ex) {
+        return ResponseEntity.badRequest().body(Map.of(
+                "error", "Invitación inválida",
+                "code", "INVITE_" + ex.getReason().name(),
+                "message", ex.getMessage()));
+    }
+
+    @ExceptionHandler(EmailAlreadyRegisteredException.class)
+    public ResponseEntity<Map<String, String>> handleEmailTaken(EmailAlreadyRegisteredException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", "Email registrado",
+                "code", "EMAIL_TAKEN",
+                "message", ex.getMessage()));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<Map<String, String>> handleBadCredentials(BadCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

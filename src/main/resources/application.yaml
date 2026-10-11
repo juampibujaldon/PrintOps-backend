@@ -8,6 +8,11 @@ spring:
   config:
     import: optional:file:.env[.properties]
 
+  # Sin perfil explícito se usa "dev" (application-dev.yaml, credenciales locales).
+  # En producción: SPRING_PROFILES_ACTIVE=prod + DB_PASSWORD y JWT_SECRET reales.
+  profiles:
+    default: dev
+
   # US-06: habilita la ejecución del scheduler de mantenimiento preventivo.
   task:
     scheduling:
@@ -22,7 +27,8 @@ spring:
   datasource:
     url: jdbc:postgresql://localhost:5432/printops
     username: printops
-    password: ${DB_PASSWORD:GoodNews}
+    # Sin default: fuera de "dev" tiene que venir de la variable de entorno.
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -44,8 +50,9 @@ spring:
       max-request-size: 10MB
 
 jwt:
-  # Clave base64 de al menos 256 bits para HMAC-SHA256 (desde variable de entorno).
-  secret: ${JWT_SECRET:YV92ZXJ5X2xvbmdfc3VwZXJfc2VjcmV0X2tleV9mb3Jfand0X3NpZ25pbmdfd2hpY2hfbmVlZHNfdG9fYmVfMjU2X2JpdHM=}
+  # Clave base64 de al menos 256 bits para HMAC-SHA256. Sin default: fuera de
+  # "dev" tiene que venir de la variable de entorno JWT_SECRET.
+  secret: ${JWT_SECRET}
   expiration: ${JWT_EXPIRATION:900000}  # 15 minutos en ms
   refresh-expiration: 604800000         # 7 días en ms
   refresh-expiration-remember: 2592000000  # 30 días en ms
@@ -68,4 +75,4 @@ resend:
   from: ${RESEND_FROM:PrintOps <onboarding@resend.dev>}
   # Sin API key, el contenido de los emails (códigos incluidos) se escribe en el
   # log para poder probar los flujos en desarrollo. En producción: false.
-  log-when-disabled: ${EMAIL_LOG_WHEN_DISABLED:true}
+  log-when-disabled: ${EMAIL_LOG_WHEN_DISABLED:false}
