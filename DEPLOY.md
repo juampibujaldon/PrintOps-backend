@@ -144,6 +144,7 @@ gh secret set SNYK_TOKEN
 
 ### Cómo se versiona
 
+- **push a `azure`** (rama de trabajo; si cambió código, Dockerfile, dependencias o el workflow) → `printops-backend:dev-<sha corto>` en el ACR **y deploy** al Container App.
 - **push a `develop`** (si cambió código, Dockerfile o dependencias) → `printops-backend:dev-<sha corto>` en el ACR, **sin deploy**.
 - **tag `v*`** → `printops-backend:<tag>` + `latest`, push y **deploy a producción**:
   ```bash
