@@ -93,8 +93,11 @@ management:
   endpoint:
     health:
       show-details: never
+      # Sin los grupos liveness/readiness: con escala a cero, el request que despierta la
+      # app llegaba antes de que Spring se marcara "ready" y /health respondía 503. Así
+      # /health refleja la app y la base (que ya está conectada cuando Tomcat atiende).
       probes:
-        enabled: true
+        enabled: false
 
 app:
   # URL pública del backend, usada para armar el magic link de verificación.
