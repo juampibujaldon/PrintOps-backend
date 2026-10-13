@@ -1,0 +1,143 @@
+# CI/CD del backend hacia Azure Container Apps.
+#   push a develop  → imagen <repo>:dev-<sha corto>, push al ACR, SIN deploy.
+#   tag v*          → imagen <repo>:<tag> + <repo>:latest, push al ACR y deploy (producción).
+# No corre tests (decisión del trabajo práctico).
+# Secrets de GitHub: AZURE_CREDENTIALS, ACR_NAME, AZURE_RESOURCE_GROUP, SNYK_TOKEN.
+# Los secretos de la app (JWT, DB, Application Insights) viven en el Container App.
+name: CI/CD
+
+on:
+  push:
+    branches: [develop]
+    tags: ['v*']
+    # Solo cuando cambia código, el Dockerfile o las dependencias. Nota: GitHub no
+    # evalúa `paths` en los push de tags, así que un tag v* siempre despliega.
+    paths:
+      - 'src/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - 'gradlew'
+      - 'Dockerfile'
+      - '.dockerignore'
+
+permissions:
+  contents: read
+
+# Nunca dos deploys en paralelo sobre el mismo ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CONTAINER_APP: printops-backend
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      # 1. Checkout
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      # 2. Análisis Snyk de dependencias (Gradle). Falla con vulnerabilidades altas o críticas.
+      - name: Set up JDK 21 (para que Snyk resuelva las dependencias Gradle)
+        uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Snyk CLI
+        uses: snyk/actions/setup@v1.0.0
+
+      - name: Snyk — dependencias
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: snyk test --severity-threshold=high
+
+      # 3. Build de la imagen
+      - name: Calcular nombre y tags de la imagen
+        id: meta
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+        run: |
+          # Nombre del repo en minúscula, sin tildes ni guiones bajos.
+          repo="${GITHUB_REPOSITORY#*/}"
+          image="$(printf '%s' "$repo" | iconv -f UTF-8 -t ASCII//TRANSLIT | tr '[:upper:]' '[:lower:]' | tr -d '_')"
+          registry="${ACR_NAME}.azurecr.io"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tags="${registry}/${image}:${GITHUB_REF_NAME},${registry}/${image}:latest"
+            deploy_image="${registry}/${image}:${GITHUB_REF_NAME}"
+            deploy=true
+          else
+            tags="${registry}/${image}:dev-${GITHUB_SHA::7}"
+            deploy_image="${registry}/${image}:dev-${GITHUB_SHA::7}"
+            deploy=false
+          fi
+          {
+            echo "image=${image}"
+            echo "registry=${registry}"
+            echo "tags=${tags}"
+            echo "deploy_image=${deploy_image}"
+            echo "deploy=${deploy}"
+          } >> "$GITHUB_OUTPUT"
+          echo "Imagen: ${tags} (deploy: ${deploy})"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.4.1
+
+      - name: Build
+        uses: docker/build-push-action@v7.4.0
+        with:
+          context: .
+          load: true
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Snyk — imagen
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: snyk container test "${{ steps.meta.outputs.deploy_image }}" --file=Dockerfile --severity-threshold=high
+
+      # 4. Push al ACR
+      - name: Azure login
+        uses: azure/login@v3.1.0
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Push al ACR
+        env:
+          ACR_NAME: ${{ secrets.ACR_NAME }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          az acr login --name "$ACR_NAME"
+          for tag in ${TAGS//,/ }; do
+            docker push "$tag"
+          done
+
+      # 5. Deploy a Container Apps (solo tags v*). El Container App ya tiene que
+      #    existir (lo crea `scripts/azure.py deploy`, que carga los secretos).
+      - name: Deploy a Container Apps
+        if: steps.meta.outputs.deploy == 'true'
+        env:
+          RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          IMAGE: ${{ steps.meta.outputs.deploy_image }}
+        run: |
+          az extension add --name containerapp --upgrade --only-show-errors
+          # Spring Boot: 0.5 vCPU / 1 GiB (con 0.25 / 0.5 GiB la JVM no entra). Escala a cero.
+          az containerapp update \
+            --name "$CONTAINER_APP" \
+            --resource-group "$RESOURCE_GROUP" \
+            --image "$IMAGE" \
+            --cpu 0.5 --memory 1.0Gi \
+            --min-replicas 0 --max-replicas 1 \
+            --output table
+
+      # 6. Logout siempre, aunque falle un paso anterior.
+      - name: Azure logout
+        if: always()
+        run: az logout || true

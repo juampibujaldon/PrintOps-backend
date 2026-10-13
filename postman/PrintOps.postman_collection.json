@@ -1,0 +1,107 @@
+{
+  "info": {
+    "name": "PrintOps API (Azure)",
+    "description": "Prueba del backend desplegado en Azure Container Apps. Antes de usarla, editá la variable `url` de la colección con https://<fqdn> del Container App (o http://localhost:8083 en local). Correr en orden: Health → Registro → Login → Impresoras. El Login guarda el JWT en la variable `token`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "url", "value": "https://REEMPLAZAR.azurecontainerapps.io" },
+    { "key": "email", "value": "demo@printops.app" },
+    { "key": "password", "value": "Password123" },
+    { "key": "token", "value": "" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "1. Health",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "url": "{{url}}/health",
+        "description": "Sin autenticación. Con escala a cero, la primera llamada puede tardar 30-60 s (arranque en frío)."
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "pm.test('status 200 y UP', () => {",
+          "  pm.response.to.have.status(200);",
+          "  pm.expect(pm.response.json().status).to.eql('UP');",
+          "});"
+        ]}
+      }]
+    },
+    {
+      "name": "2. Registro",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{url}}/api/auth/register",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"workspaceName\": \"Taller demo\"\n}" },
+        "description": "Crea un usuario MANAGER con un taller nuevo (queda verificado). Si el email ya existe responde 409: pasá directo al Login."
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "pm.test('registrado (200) o ya existente (409)', () => {",
+          "  pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
+          "});"
+        ]}
+      }]
+    },
+    {
+      "name": "3. Login (guarda el token)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{url}}/api/auth/login",
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"deviceId\": \"postman\",\n  \"rememberMe\": false\n}" },
+        "description": "Devuelve accessToken (JWT, 15 min) y refreshToken. El script lo guarda en la variable `token` de la colección."
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "pm.test('login 200 con accessToken', () => {",
+          "  pm.response.to.have.status(200);",
+          "  const token = pm.response.json().accessToken;",
+          "  pm.expect(token).to.be.a('string').and.not.empty;",
+          "  pm.collectionVariables.set('token', token);",
+          "});"
+        ]}
+      }]
+    },
+    {
+      "name": "4. Impresoras (protegido)",
+      "request": {
+        "method": "GET",
+        "url": "{{url}}/api/printers",
+        "description": "Usa el Bearer token de la colección. Esperado: 200 con una lista (vacía al principio)."
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 con token', () => pm.response.to.have.status(200));"
+        ]}
+      }]
+    },
+    {
+      "name": "5. Impresoras sin token (debe dar 401)",
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "url": "{{url}}/api/printers",
+        "description": "Comprueba que el endpoint está protegido."
+      },
+      "event": [{
+        "listen": "test",
+        "script": { "type": "text/javascript", "exec": [
+          "pm.test('401 sin token', () => pm.response.to.have.status(401));"
+        ]}
+      }]
+    }
+  ]
+}

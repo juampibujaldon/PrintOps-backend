@@ -1,0 +1,19 @@
+# Solo entra al contexto de build lo que el Dockerfile necesita.
+.git
+.github
+.gradle
+.idea
+.vscode
+.antigravitycli
+build
+bin
+uploads
+scripts
+*.md
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Dockerfile
+.dockerignore

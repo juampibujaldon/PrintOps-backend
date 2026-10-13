@@ -56,7 +56,10 @@ public class SecurityConfig {
                     "/api/auth/verify-email",
                     "/api/auth/resend-verification",
                     "/uploads/**",
-                    "/ws/**"
+                    "/ws/**",
+                    // Health check del Container App (sin autenticación).
+                    "/health",
+                    "/health/**"
                 ).permitAll()
                 // Solo los técnicos crean órdenes (US-05: el técnico es quien la ejecuta).
                 .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("TECNICO")

@@ -24,12 +24,34 @@ spring:
     caffeine:
       spec: maximumSize=100,expireAfterWrite=5m
 
+  # 12-factor: la base se configura por entorno. En Azure, DB_URL apunta al
+  # PostgreSQL Flexible Server (con ?sslmode=require).
   datasource:
-    url: jdbc:postgresql://localhost:5432/printops
-    username: printops
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/printops}
+    username: ${DB_USERNAME:printops}
     # Sin default: fuera de "dev" tiene que venir de la variable de entorno.
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    # HikariCP (pool por defecto de Spring Boot), chico: una sola réplica y un
+    # servidor B1ms con pocas conexiones disponibles.
+    hikari:
+      pool-name: printops-pool
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      minimum-idle: 1
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+
+  # Arranque más rápido (factor IX): los repositorios JPA se inicializan en segundo plano.
+  data:
+    jpa:
+      repositories:
+        bootstrap-mode: deferred
+
+  # Apagado elegante: ante SIGTERM se dejan de aceptar requests y se espera a
+  # que terminen las que están en curso, hasta 20 s.
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
 
   jpa:
     hibernate:
@@ -58,7 +80,21 @@ jwt:
   refresh-expiration-remember: 2592000000  # 30 días en ms
 
 server:
-  port: 8083
+  port: ${PORT:8083}
+  shutdown: graceful
+
+# Actuator: solo /health, sin autenticación y sin detalles internos.
+management:
+  endpoints:
+    web:
+      base-path: /
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
 
 app:
   # URL pública del backend, usada para armar el magic link de verificación.

@@ -31,3 +31,7 @@ application-local.yaml
 
 # Uploads (archivos subidos en runtime)
 uploads/
+
+# Herramientas locales
+.antigravitycli/
+.vscode/

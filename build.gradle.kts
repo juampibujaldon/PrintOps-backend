@@ -1,7 +1,7 @@
 // build.gradle.kts
 plugins {
 	java
-	id("org.springframework.boot") version "4.0.5"
+	id("org.springframework.boot") version "4.0.8"
 	id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -18,11 +18,19 @@ repositories {
 	mavenCentral()
 }
 
+// Parches de seguridad por encima de lo que trae Spring Boot 4.0.8 (CVE críticos/altos
+// reportados por Grype/Snyk). Revisar y borrar cuando una versión nueva de Boot los incluya.
+extra["tomcat.version"] = "11.0.27"
+extra["jackson-bom.version"] = "3.1.7"
+extra["jackson-2-bom.version"] = "2.21.7"
+
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springframework.boot:spring-boot-starter-security")
 	implementation("org.springframework.boot:spring-boot-starter-data-jpa")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
+	// Endpoint /health para Azure Container Apps (factor IX / probes).
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
 	implementation("org.springframework.boot:spring-boot-starter-cache")
 	implementation("com.github.ben-manes.caffeine:caffeine")
 	runtimeOnly("org.postgresql:postgresql")
