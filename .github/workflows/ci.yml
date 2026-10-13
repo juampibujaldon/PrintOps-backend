@@ -116,7 +116,7 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: |
           set +e
-          snyk container test "${{ steps.meta.outputs.deploy_image }}" --file=Dockerfile --severity-threshold=high | tee snyk-image.txt
+          snyk container test "${{ steps.meta.outputs.deploy_image }}" --file=Dockerfile --severity-threshold=high --policy-path=.snyk | tee snyk-image.txt
           code=${PIPESTATUS[0]}
           grep -E '✗|Upgrade |Introduced through' snyk-image.txt | head -40 | while IFS= read -r line; do
             echo "::warning title=Snyk imagen::${line}"
