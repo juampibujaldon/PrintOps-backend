@@ -57,7 +57,16 @@ jobs:
       - name: Snyk — dependencias
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk test --severity-threshold=high
+        run: |
+          # Solo el classpath de runtime: es lo que va en la imagen (las dependencias de
+          # test no llegan a producción). Cada hallazgo se publica como anotación.
+          set +e
+          snyk test --severity-threshold=high --configuration-matching='^runtimeClasspath$' | tee snyk-deps.txt
+          code=${PIPESTATUS[0]}
+          grep -E '✗|Upgrade |Introduced through' snyk-deps.txt | head -40 | while IFS= read -r line; do
+            echo "::warning title=Snyk dependencias::${line}"
+          done
+          exit $code
 
       # 3. Build de la imagen
       - name: Calcular nombre y tags de la imagen
@@ -104,7 +113,14 @@ jobs:
       - name: Snyk — imagen
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: snyk container test "${{ steps.meta.outputs.deploy_image }}" --file=Dockerfile --severity-threshold=high
+        run: |
+          set +e
+          snyk container test "${{ steps.meta.outputs.deploy_image }}" --file=Dockerfile --severity-threshold=high | tee snyk-image.txt
+          code=${PIPESTATUS[0]}
+          grep -E '✗|Upgrade |Introduced through' snyk-image.txt | head -40 | while IFS= read -r line; do
+            echo "::warning title=Snyk imagen::${line}"
+          done
+          exit $code
 
       # 4. Push al ACR
       - name: Azure login
