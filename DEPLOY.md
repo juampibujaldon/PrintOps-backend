@@ -52,8 +52,11 @@ az provider register -n Microsoft.ContainerRegistry --wait
 az provider register -n Microsoft.DBforPostgreSQL --wait
 
 # Ajustá los nombres. ACR_NAME y PG_SERVER tienen que ser únicos en todo Azure.
-# Azure for Students limita las regiones: si una falla, probá otra (eastus2, brazilsouth…).
+# Azure for Students solo permite algunas regiones (az policy assignment list) y además
+# restringe PostgreSQL en eastus y eastus2 ("The location is restricted"): la base y el
+# entorno de Container Apps van en northcentralus; el resto puede ir en eastus.
 export LOCATION=eastus
+export DATA_LOCATION=northcentralus
 export AZURE_RESOURCE_GROUP=rg-printops
 export ACR_NAME=acrprintops$RANDOM          # solo letras y números
 export PG_SERVER=pg-printops-$RANDOM
@@ -63,8 +66,10 @@ export CONTAINERAPP_NAME=printops-backend
 # Grupo de recursos
 az group create -n $AZURE_RESOURCE_GROUP -l $LOCATION
 
-# Container Registry (Basic)
-az acr create -n $ACR_NAME -g $AZURE_RESOURCE_GROUP --sku Basic
+# Container Registry (Basic). Usuario admin activado: los entornos "express" de Container
+# Apps (los que se crean hoy en Azure for Students) no aceptan identidad administrada para
+# leer el registry; el Container App usa este usuario, guardado como secret.
+az acr create -n $ACR_NAME -g $AZURE_RESOURCE_GROUP --sku Basic --admin-enabled true
 
 # Log Analytics con límite diario de 0.1 GB
 az monitor log-analytics workspace create -g $AZURE_RESOURCE_GROUP -n law-printops -l $LOCATION
@@ -77,13 +82,16 @@ az monitor app-insights component create --app appi-printops -g $AZURE_RESOURCE_
 # PostgreSQL Flexible Server B1ms. 0.0.0.0 = solo servicios de Azure pueden conectarse.
 export DB_USERNAME=printopsadmin
 read -rs -p "Password de la base: " DB_PASSWORD; echo; export DB_PASSWORD
-az postgres flexible-server create -g $AZURE_RESOURCE_GROUP -n $PG_SERVER -l $LOCATION \
+az postgres flexible-server create -g $AZURE_RESOURCE_GROUP -n $PG_SERVER -l $DATA_LOCATION \
   --tier Burstable --sku-name Standard_B1ms --storage-size 32 --version 16 \
   --admin-user $DB_USERNAME --admin-password "$DB_PASSWORD" --public-access 0.0.0.0 --yes
-az postgres flexible-server db create -g $AZURE_RESOURCE_GROUP -s $PG_SERVER -d printops
+az postgres flexible-server db create -g $AZURE_RESOURCE_GROUP --server-name $PG_SERVER --name printops
 
-# Entorno de Container Apps, con los logs en el mismo workspace (sujetos al límite diario)
-az containerapp env create -n $CONTAINERAPP_ENV -g $AZURE_RESOURCE_GROUP -l $LOCATION \
+# Entorno de Container Apps, con los logs en el mismo workspace (sujetos al límite diario).
+# Antes, Microsoft.App tiene que figurar "Registered" (az provider show -n Microsoft.App
+# --query registrationState). Si queda trabado en "Registering", el CLI falla con
+# "Timed out while waiting for the Microsoft.App resource provider": esperá y reintentá.
+az containerapp env create -n $CONTAINERAPP_ENV -g $AZURE_RESOURCE_GROUP -l $DATA_LOCATION \
   --logs-workspace-id $(az monitor log-analytics workspace show -g $AZURE_RESOURCE_GROUP -n law-printops --query customerId -o tsv) \
   --logs-workspace-key $(az monitor log-analytics workspace get-shared-keys -g $AZURE_RESOURCE_GROUP -n law-printops --query primarySharedKey -o tsv)
 

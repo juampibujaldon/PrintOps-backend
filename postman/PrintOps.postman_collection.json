@@ -5,7 +5,7 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "url", "value": "https://REEMPLAZAR.azurecontainerapps.io" },
+    { "key": "url", "value": "https://printops-backend.purplemeadow-6cc5e29a.northcentralus.azurecontainerapps.io" },
     { "key": "email", "value": "demo@printops.app" },
     { "key": "password", "value": "Password123" },
     { "key": "token", "value": "" }

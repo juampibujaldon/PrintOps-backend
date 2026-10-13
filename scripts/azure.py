@@ -94,6 +94,9 @@ def masked(cmd: list[str]) -> str:
     for part in cmd:
         name, sep, _ = part.partition("=")
         out.append(f"{name}=****" if sep and name in APP_SECRETS else part)
+    for i, part in enumerate(out[:-1]):
+        if part == "--registry-password":
+            out[i + 1] = "****"
     return shlex.join(out)
 
 
@@ -118,6 +121,15 @@ def require_tool(tool: str, hint: str) -> None:
         sys.exit(f"No se encontró `{tool}`. {hint}")
 
 
+def acr_password() -> str:
+    r = run(["az", "acr", "credential", "show", "-n", env("ACR_NAME", required=True),
+             "--query", "passwords[0].value", "-o", "tsv"], check=False, capture=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        sys.exit("No se pudo leer la clave del ACR. Activá el usuario admin: "
+                 "az acr update -n $ACR_NAME --admin-enabled true")
+    return r.stdout.strip()
+
+
 def app_exists(name: str, rg: str) -> bool:
     r = run(["az", "containerapp", "show", "-n", name, "-g", rg, "--query", "name", "-o", "tsv"],
             check=False, capture=True)
@@ -132,7 +144,8 @@ def cmd_build(args) -> None:
     tags = ["-t", local]
     if os.environ.get("ACR_NAME"):
         tags += ["-t", f"{registry()}/{local}"]
-    run(["docker", "build", *tags, str(ROOT)])
+    # Container Apps corre linux/amd64: forzarlo aunque se buildee desde una Mac ARM.
+    run(["docker", "build", "--platform", "linux/amd64", *tags, str(ROOT)])
     print(f"\nImagen lista: {local}")
 
 
@@ -170,8 +183,10 @@ def cmd_deploy(args) -> None:
     cmd = ["az", "containerapp", "create", "-n", name, "-g", rg,
            "--environment", env("CONTAINERAPP_ENV", required=True),
            "--image", image,
-           # Identidad administrada con rol AcrPull: sin usuario/clave del registry.
-           "--registry-server", registry(), "--registry-identity", "system",
+           # Usuario admin del ACR (az acr update --admin-enabled true). Los entornos
+           # "express" de Container Apps no aceptan identidad administrada para el registry.
+           "--registry-server", registry(), "--registry-username", env("ACR_NAME", required=True),
+           "--registry-password", acr_password(),
            "--ingress", "external", "--target-port", TARGET_PORT,
            *limits,
            "--secrets", *[f"{s}={v}" for s, v in secrets.items()],

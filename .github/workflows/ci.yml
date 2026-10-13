@@ -127,15 +127,21 @@ jobs:
           RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
           IMAGE: ${{ steps.meta.outputs.deploy_image }}
         run: |
-          az extension add --name containerapp --upgrade --only-show-errors
+          # Se actualiza vía ARM (az rest) y no con `az containerapp update`: en suscripciones
+          # Azure for Students el proveedor Microsoft.App puede quedar en "Registering" y el
+          # CLI se niega a operar, aunque ARM acepta los cambios. Solo se toca el template
+          # (imagen, recursos y escalado); secretos y variables quedan como están.
+          sub="$(az account show --query id -o tsv)"
+          url="https://management.azure.com/subscriptions/${sub}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/containerApps/${CONTAINER_APP}?api-version=2024-03-01"
           # Spring Boot: 0.5 vCPU / 1 GiB (con 0.25 / 0.5 GiB la JVM no entra). Escala a cero.
-          az containerapp update \
-            --name "$CONTAINER_APP" \
-            --resource-group "$RESOURCE_GROUP" \
-            --image "$IMAGE" \
-            --cpu 0.5 --memory 1.0Gi \
-            --min-replicas 0 --max-replicas 1 \
-            --output table
+          body="$(az rest --method get --url "$url" --query properties.template -o json \
+            | jq -c --arg img "$IMAGE" 'del(.revisionSuffix)
+                | .containers[0].image = $img
+                | .containers[0].resources = {cpu: 0.5, memory: "1Gi"}
+                | .scale.minReplicas = 0 | .scale.maxReplicas = 1
+                | {properties: {template: .}}')"
+          az rest --method patch --url "$url" --body "$body" \
+            --query "{estado: properties.provisioningState, imagen: properties.template.containers[0].image}" -o table
 
       # 6. Logout siempre, aunque falle un paso anterior.
       - name: Azure logout

@@ -6,7 +6,9 @@ ARG AI_AGENT_VERSION=3.7.10
 ARG AI_AGENT_SHA256=93a70c8f5d364c7e777f6c4d1b235dba91aef8448bd3fa94359f1d7f3e2eb0ec
 
 # ---------- Etapa 1: build ----------
-FROM eclipse-temurin:21-jdk-noble AS build
+# $BUILDPLATFORM: la compilación corre nativa (el jar sirve en cualquier arquitectura),
+# así un build para linux/amd64 desde una Mac ARM no emula Gradle.
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk-noble AS build
 WORKDIR /src
 
 # Primero solo lo que define las dependencias: se cachea mientras no cambie el build.
