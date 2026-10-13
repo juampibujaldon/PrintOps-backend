@@ -23,6 +23,7 @@ repositories {
 extra["tomcat.version"] = "11.0.27"
 extra["jackson-bom.version"] = "3.1.7"
 extra["jackson-2-bom.version"] = "2.21.7"
+extra["postgresql.version"] = "42.7.14"
 
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-web")

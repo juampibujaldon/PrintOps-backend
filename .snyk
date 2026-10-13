@@ -1,0 +1,13 @@
+# Política de Snyk: excepciones revisadas a mano. Cada una vence y hay que re-evaluarla.
+version: v1.25.0
+ignore:
+  SNYK-JAVA-ORGGLASSFISHJAXB-20883142:
+    - '*':
+        reason: >-
+          XXE en org.glassfish.jaxb:jaxb-core sin versión corregida publicada (4.0.9 es la
+          última; OSV no la registra). Llega transitivamente por hibernate-core, que usa JAXB
+          solo para leer sus propios mapeos XML del classpath; la app no procesa XML de
+          usuarios. Re-evaluar al vencer o cuando salga una versión de JAXB con el arreglo.
+        expires: 2026-11-13T00:00:00.000Z
+        created: 2026-10-13T00:00:00.000Z
+patch: {}

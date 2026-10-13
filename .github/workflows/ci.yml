@@ -22,6 +22,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - '.github/workflows/ci.yml'
+      - '.snyk'
 
 permissions:
   contents: read
