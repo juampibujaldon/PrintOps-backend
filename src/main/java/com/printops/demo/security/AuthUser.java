@@ -19,6 +19,7 @@ public class AuthUser implements UserDetails {
     private final boolean enabled;
     private final Long workspaceId;
     private final String role;
+    // private final String roleName;
 
     public AuthUser(User user) {
         this.id = user.getId();
@@ -35,23 +36,40 @@ public class AuthUser implements UserDetails {
     }
 
     @Override
-    public String getPassword() { return password; }
+    public String getPassword() {
+        return password;
+    }
 
     @Override
-    public String getUsername() { return email; }
+    public String getUsername() {
+        return email;
+    }
 
     @Override
-    public boolean isAccountNonExpired() { return true; }
+    public boolean isAccountNonExpired() {
+        return true;
+    }
 
     @Override
-    public boolean isAccountNonLocked() { return true; }
+    public boolean isAccountNonLocked() {
+        return true;
+    }
 
     @Override
-    public boolean isCredentialsNonExpired() { return true; }
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
 
     @Override
-    public boolean isEnabled() { return enabled; }
+    public boolean isEnabled() {
+        return enabled;
+    }
 
-    public Long getId() { return id; }
-    public Long getWorkspaceId() { return workspaceId; }
+    public Long getId() {
+        return id;
+    }
+
+    public Long getWorkspaceId() {
+        return workspaceId;
+    }
 }
