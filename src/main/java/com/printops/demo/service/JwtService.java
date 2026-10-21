@@ -39,6 +39,9 @@ public class JwtService {
 
     public String generateAccessToken(String email, String role, Long workspaceId) {
         return Jwts.builder()
+                // jti unico: sin el, dos tokens del mismo usuario en el mismo segundo son
+                // identicos y el blacklist del logout invalidaria tambien al nuevo.
+                .id(java.util.UUID.randomUUID().toString())
                 .subject(email)
                 .claim("role", role)
                 .claim("workspaceId", workspaceId)

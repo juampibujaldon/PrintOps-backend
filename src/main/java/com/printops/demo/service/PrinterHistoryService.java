@@ -73,7 +73,13 @@ public class PrinterHistoryService {
     // ── Métricas agregadas ───────────────────────────────────────────────────
     @Transactional(readOnly = true)
     public PrinterMetricsDTO getMetrics(Long printerId) {
+        requireOwnPrinter(printerId);
         return calculateMetrics(printerId);
+    }
+
+    private void requireOwnPrinter(Long printerId) {
+        printerRepository.findByIdAndWorkspaceId(printerId, wsId())
+                .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + printerId));
     }
 
     public PrinterMetricsDTO calculateMetrics(Long printerId) {
@@ -113,6 +119,7 @@ public class PrinterHistoryService {
     // ── Uso de piezas (para el endpoint /history/parts) ──────────────────────
     @Transactional(readOnly = true)
     public List<PartUsageSummaryDTO> getPartsUsage(Long printerId) {
+        requireOwnPrinter(printerId);
         return orderRepository.getPartUsageSummary(printerId, wsId()).stream()
                 .map(row -> new PartUsageSummaryDTO(
                         (Long) row[0],
