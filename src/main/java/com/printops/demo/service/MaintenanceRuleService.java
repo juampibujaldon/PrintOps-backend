@@ -16,12 +16,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 // Reglas de mantenimiento preventivo (US-06). Evalúa condiciones periódicas
@@ -40,6 +45,9 @@ public class MaintenanceRuleService {
     private final MaintenanceOrderRepository orderRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final DashboardCache dashboardCache;
+    // Cada regla se evalua en su propia transaccion: si una falla, solo se revierte esa.
+    private final TransactionTemplate perRuleTx;
 
     // FIX 7: umbral (%) para alerta previa en reglas por horas/gramos.
     @Value("${app.maintenance.alert-threshold-percent:10.0}")
@@ -52,12 +60,17 @@ public class MaintenanceRuleService {
                                   PrinterRepository printerRepository,
                                   MaintenanceOrderRepository orderRepository,
                                   UserRepository userRepository,
-                                  NotificationService notificationService) {
+                                  NotificationService notificationService,
+                                  DashboardCache dashboardCache,
+                                  PlatformTransactionManager transactionManager) {
         this.ruleRepository = ruleRepository;
         this.printerRepository = printerRepository;
         this.orderRepository = orderRepository;
         this.userRepository = userRepository;
         this.notificationService = notificationService;
+        this.dashboardCache = dashboardCache;
+        this.perRuleTx = new TransactionTemplate(transactionManager);
+        this.perRuleTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     private Long wsId() {
@@ -93,15 +106,19 @@ public class MaintenanceRuleService {
     }
 
     // Llamado por el scheduler: recorre todas las reglas activas y evalúa cada una.
-    @Transactional
+    // Sin transacción global: cada regla confirma o revierte por separado (REQUIRES_NEW).
+    // Una excepción dentro de una transacción compartida la marcaba "rollback-only" y,
+    // aunque se capturara, se perdía el trabajo de TODAS las reglas del lote.
     public void evaluateAllRules() {
-        List<MaintenanceRule> rules = ruleRepository.findByActiveTrue();
+        List<MaintenanceRule> rules = ruleRepository.findActiveWithPrinter();
         if (rules.isEmpty()) {
             return;
         }
+        // Técnicos por workspace: se buscan una sola vez por lote, no por regla.
+        Map<Long, List<Long>> technicians = new HashMap<>();
         for (MaintenanceRule rule : rules) {
             try {
-                evaluateRule(rule);
+                perRuleTx.executeWithoutResult(status -> evaluateRule(rule, technicians));
             } catch (Exception e) {
                 // Una regla rota no debe frenar la evaluación del resto.
                 log.error("Error evaluando regla id={}", rule.getId(), e);
@@ -109,7 +126,7 @@ public class MaintenanceRuleService {
         }
     }
 
-    private void evaluateRule(MaintenanceRule rule) {
+    private void evaluateRule(MaintenanceRule rule, Map<Long, List<Long>> technicians) {
         Printer printer = rule.getPrinter();
         boolean triggered = isTriggered(rule, printer);
 
@@ -120,7 +137,7 @@ public class MaintenanceRuleService {
             if (!hasOpenOrder) {
                 MaintenanceOrder order = createOrder(rule, printer);
                 updateSnapshotAfterTrigger(rule, printer);
-                notifyTechnicians(rule.getWorkspaceId(),
+                notifyTechnicians(technicians, rule.getWorkspaceId(),
                         "Mantenimiento preventivo requerido para la impresora " + printerName(printer)
                                 + " (regla #" + rule.getId() + "). Orden #" + order.getId() + " generada.",
                         order.getId());
@@ -131,10 +148,10 @@ public class MaintenanceRuleService {
 
         // Alerta previa: tiempo (días) o progreso (horas/gramos).
         if (rule.getTriggerType() == TriggerType.TIME_BASED) {
-            maybeSendPreAlert(rule, printer);
+            maybeSendPreAlert(rule, printer, technicians);
         } else if (rule.getTriggerType() == TriggerType.USAGE_HOURS
                 || rule.getTriggerType() == TriggerType.FILAMENT_GRAMS) {
-            maybeSendUsagePreAlert(rule, printer);
+            maybeSendUsagePreAlert(rule, printer, technicians);
         }
     }
 
@@ -151,7 +168,7 @@ public class MaintenanceRuleService {
     }
 
     // ── Alerta previa (TIME_BASED): notifica si faltan <= alertDaysBefore días ──
-    private void maybeSendPreAlert(MaintenanceRule rule, Printer printer) {
+    private void maybeSendPreAlert(MaintenanceRule rule, Printer printer, Map<Long, List<Long>> technicians) {
         int alertDays = rule.getAlertDaysBefore() != null ? rule.getAlertDaysBefore() : 7;
         LocalDate due = baselineDate(rule).plusDays(rule.getTriggerValue());
         long daysUntil = ChronoUnit.DAYS.between(LocalDate.now(), due);
@@ -163,15 +180,15 @@ public class MaintenanceRuleService {
         if (rule.getAlertSentAt() != null && rule.getAlertSentAt().isEqual(LocalDate.now())) {
             return;
         }
-        notifyTechnicians(rule.getWorkspaceId(),
+        notifyTechnicians(technicians, rule.getWorkspaceId(),
                 "Próximo mantenimiento de " + printerName(printer) + " en " + daysUntil + " día(s) (regla #" + rule.getId() + ").",
                 null);
         rule.setAlertSentAt(LocalDate.now());
-        ruleRepository.save(rule);
+        ruleRepository.markAlertSent(rule.getId(), rule.getAlertSentAt());
     }
 
     // FIX 7: alerta previa para reglas por horas/gramos (umbral porcentual).
-    private void maybeSendUsagePreAlert(MaintenanceRule rule, Printer printer) {
+    private void maybeSendUsagePreAlert(MaintenanceRule rule, Printer printer, Map<Long, List<Long>> technicians) {
         double progress = computeProgress(rule, printer);
         if (progress < (100.0 - alertThresholdPercent) || progress >= 100.0) {
             return;
@@ -181,12 +198,12 @@ public class MaintenanceRuleService {
             return;
         }
         String unit = rule.getTriggerType() == TriggerType.USAGE_HOURS ? "hs de uso" : "g de filamento";
-        notifyTechnicians(rule.getWorkspaceId(),
+        notifyTechnicians(technicians, rule.getWorkspaceId(),
                 "La impresora " + printerName(printer) + " está por alcanzar el umbral de mantenimiento "
                         + "(regla #" + rule.getId() + ", " + Math.round(progress) + "% de " + rule.getTriggerValue() + " " + unit + ").",
                 null);
         rule.setAlertSentAt(LocalDate.now());
-        ruleRepository.save(rule);
+        ruleRepository.markAlertSent(rule.getId(), rule.getAlertSentAt());
     }
 
     // ── Generación de la orden ──────────────────────────────────────────────
@@ -206,7 +223,9 @@ public class MaintenanceRuleService {
             ci.setNa(false);
             order.addChecklistItem(ci);
         }
-        return orderRepository.save(order);
+        MaintenanceOrder saved = orderRepository.save(order);
+        dashboardCache.invalidate(); // la orden nueva cuenta en el dashboard (tras el commit)
+        return saved;
     }
 
     private void updateSnapshotAfterTrigger(MaintenanceRule rule, Printer printer) {
@@ -217,13 +236,15 @@ public class MaintenanceRuleService {
             rule.setLastFilamentSnapshot(grams(printer));
         }
         rule.setAlertSentAt(null);
-        ruleRepository.save(rule);
+        ruleRepository.markTriggered(rule.getId(), rule.getLastTriggeredAt(),
+                rule.getLastUsageHoursSnapshot(), rule.getLastFilamentSnapshot());
     }
 
     // ── Notificaciones a los técnicos del workspace de la regla ──────────────
-    private void notifyTechnicians(Long workspaceId, String message, Long orderId) {
-        userRepository.findByRoleAndWorkspaceId(Role.TECNICO, workspaceId).forEach(tech ->
-                notificationService.createFor(tech.getId(), "MAINTENANCE_RULE", message, orderId));
+    private void notifyTechnicians(Map<Long, List<Long>> technicians, Long workspaceId, String message, Long orderId) {
+        technicians.computeIfAbsent(workspaceId, ws ->
+                        userRepository.findByRoleAndWorkspaceId(Role.TECNICO, ws).stream().map(User::getId).toList())
+                .forEach(techId -> notificationService.createFor(techId, "MAINTENANCE_RULE", message, orderId));
     }
 
     // ── Pausa / reactivación / borrado ───────────────────────────────────────

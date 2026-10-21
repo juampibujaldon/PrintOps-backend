@@ -32,6 +32,10 @@ spring:
     driver-class-name: org.postgresql.Driver
 
   jpa:
+    # Sin sesion abierta durante el render de la vista: la conexion vuelve al pool al
+    # terminar el servicio y cualquier acceso lazy fuera de una transaccion falla en vez
+    # de ejecutar consultas ocultas desde el controller / serializador.
+    open-in-view: false
     hibernate:
       ddl-auto: update
     show-sql: false
@@ -59,6 +63,11 @@ jwt:
 
 server:
   port: 8083
+  # Respuestas JSON/texto >= 1 KB viajan comprimidas (gzip) si el cliente lo acepta.
+  compression:
+    enabled: true
+    mime-types: application/json,text/plain
+    min-response-size: 1024
 
 app:
   # URL pública del backend, usada para armar el magic link de verificación.

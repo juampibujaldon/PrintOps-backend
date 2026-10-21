@@ -11,7 +11,7 @@ import java.time.LocalDate;
 // Regla de mantenimiento preventivo periódico (US-06). El scheduler evalúa
 // estas reglas y genera órdenes automáticamente cuando se cumple la condición.
 @Entity
-@Table(name = "maintenance_rules")
+@Table(name = "maintenance_rules", indexes = @Index(name = "idx_rules_active", columnList = "active"))
 public class MaintenanceRule {
 
     @Id

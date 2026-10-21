@@ -12,7 +12,22 @@ import java.util.Optional;
 public interface SparePartRepository extends JpaRepository<SparePart, Long> {
 
     // FIX 3: todas las consultas filtradas por workspace.
-    List<SparePart> findByWorkspaceIdOrderByNameAsc(Long workspaceId);
+    // Listado con filtros resueltos en SQL. searchPattern es un LIKE ya escapado con '!'
+    // ("%" = sin busqueda); category "" = sin filtro. Ver SparePartService.list.
+    @Query("""
+            SELECT p FROM SparePart p
+            WHERE p.workspaceId = :workspaceId
+              AND (:searchPattern = '%'
+                   OR LOWER(p.name) LIKE LOWER(:searchPattern) ESCAPE '!'
+                   OR LOWER(p.partNumber) LIKE LOWER(:searchPattern) ESCAPE '!')
+              AND (:category = '' OR LOWER(p.category) = LOWER(:category))
+              AND (:lowStock = false OR p.stock <= p.minStock)
+            ORDER BY p.name ASC
+            """)
+    List<SparePart> search(@Param("workspaceId") Long workspaceId,
+                           @Param("searchPattern") String searchPattern,
+                           @Param("category") String category,
+                           @Param("lowStock") boolean lowStock);
 
     Optional<SparePart> findByIdAndWorkspaceId(Long id, Long workspaceId);
 

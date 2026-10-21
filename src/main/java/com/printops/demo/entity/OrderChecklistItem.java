@@ -6,7 +6,7 @@ import jakarta.persistence.*;
 // Ítem de checklist de una orden (US-04). Es editable: se puede tildar,
 // marcar como N/A o agregar ítems nuevos.
 @Entity
-@Table(name = "order_checklist_items")
+@Table(name = "order_checklist_items", indexes = @Index(name = "idx_order_checklist_order", columnList = "order_id"))
 public class OrderChecklistItem {
 
     @Id

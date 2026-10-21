@@ -31,3 +31,6 @@ application-local.yaml
 
 # Uploads (archivos subidos en runtime)
 uploads/
+
+# graphify (grafo de conocimiento local, se regenera)
+graphify-out/

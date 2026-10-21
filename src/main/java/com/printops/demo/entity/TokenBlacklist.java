@@ -5,7 +5,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "token_blacklist")
+@Table(name = "token_blacklist", indexes = @Index(name = "idx_token_blacklist_expires", columnList = "expires_at"))
 public class TokenBlacklist {
 
     @Id

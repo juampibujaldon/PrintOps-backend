@@ -33,11 +33,14 @@ public class PrinterService {
 
     private final PrinterRepository printerRepository;
     private final UserRepository userRepository;
+    private final DashboardCache dashboardCache;
     private final String uploadDir = "uploads/printers/";
 
-    public PrinterService(PrinterRepository printerRepository, UserRepository userRepository) {
+    public PrinterService(PrinterRepository printerRepository, UserRepository userRepository,
+                          DashboardCache dashboardCache) {
         this.printerRepository = printerRepository;
         this.userRepository = userRepository;
+        this.dashboardCache = dashboardCache;
         // Ensure upload directory exists
         try {
             Files.createDirectories(Paths.get(uploadDir));
@@ -95,6 +98,8 @@ public class PrinterService {
         }
 
         Printer saved = printerRepository.save(printer);
+        // La impresora nueva aparece en la disponibilidad y los costos del dashboard.
+        dashboardCache.invalidate();
         return toResponse(saved);
     }
 

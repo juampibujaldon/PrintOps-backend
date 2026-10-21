@@ -7,7 +7,7 @@ import java.time.Instant;
 
 // Foto adjunta a una orden (US-04). Máximo 5 por orden.
 @Entity
-@Table(name = "order_photos")
+@Table(name = "order_photos", indexes = @Index(name = "idx_order_photos_order", columnList = "order_id"))
 public class OrderPhoto {
 
     @Id

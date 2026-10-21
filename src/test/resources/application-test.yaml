@@ -1,0 +1,22 @@
+# Perfil SOLO para tests. Nunca apunta a la base de desarrollo: la URL real la
+# inyecta IntegrationTestBase desde un contenedor Testcontainers. El placeholder
+# de abajo falla rapido si alguien levanta el contexto sin ese contenedor.
+spring:
+  datasource:
+    url: jdbc:postgresql://invalid.invalid:1/printops_test_placeholder
+    username: test
+    password: test
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        generate_statistics: true
+
+jwt:
+  # Clave de prueba (Base64, > 256 bits). No es un secreto real.
+  secret: dGVzdC1vbmx5LWp3dC1zZWNyZXQtbm90LWZvci1wcm9kdWN0aW9uLTEyMzQ1Njc4OTA=
+
+resend:
+  api-key: ""
+  log-when-disabled: true

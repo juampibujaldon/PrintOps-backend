@@ -84,7 +84,8 @@ public class GlobalMetricsService {
                 typeCounts.getOrDefault(OrderType.CORRECTIVE, 0L).intValue(),
                 typeCounts.getOrDefault(OrderType.CALIBRATION, 0L).intValue());
 
-        double avgResolution = avgResolutionHours(orderRepository.completedTimestamps(wsId(), fromI, toI));
+        Double avgResolutionDb = orderRepository.averageResolutionHours(wsId(), fromI, toI);
+        double avgResolution = avgResolutionDb != null ? avgResolutionDb : 0.0;
         int overdue = (int) orderRepository.countOverdue(wsId(), Instant.now().minus(7, ChronoUnit.DAYS));
 
         // ── Disponibilidad ───────────────────────────────────────────────────
@@ -210,21 +211,6 @@ public class GlobalMetricsService {
             count++;
         }
         return result;
-    }
-
-    private double avgResolutionHours(List<Object[]> rows) {
-        if (rows == null || rows.isEmpty()) return 0.0;
-        double sum = 0.0;
-        int n = 0;
-        for (Object[] row : rows) {
-            Instant created = (Instant) row[0];
-            Instant updated = (Instant) row[1];
-            if (created != null && updated != null) {
-                sum += ChronoUnit.MINUTES.between(created, updated) / 60.0;
-                n++;
-            }
-        }
-        return n == 0 ? 0.0 : sum / n;
     }
 
     private String printerName(Printer p) {

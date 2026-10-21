@@ -5,7 +5,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "login_audit")
+@Table(name = "login_audit", indexes = @Index(name = "idx_login_audit_ip_time", columnList = "ip_address, timestamp"))
 public class LoginAudit {
 
     public enum Action { LOGIN, LOGOUT, FAILED }

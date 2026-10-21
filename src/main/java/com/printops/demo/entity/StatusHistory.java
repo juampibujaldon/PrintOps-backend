@@ -8,7 +8,7 @@ import java.time.Instant;
 // Historial inmutable de cambios de estado de una orden (US-05).
 // Solo se inserta; nunca se edita ni se borra.
 @Entity
-@Table(name = "status_history")
+@Table(name = "status_history", indexes = @Index(name = "idx_status_history_order", columnList = "order_id"))
 public class StatusHistory {
 
     @Id

@@ -8,7 +8,7 @@ import java.time.Instant;
 // Notificación simple (US-04): se crea, por ejemplo, al dar de alta una orden
 // para que un supervisor/admin pueda enterarse.
 @Entity
-@Table(name = "notifications")
+@Table(name = "notifications", indexes = @Index(name = "idx_notifications_recipient", columnList = "recipient_user_id, created_at"))
 public class Notification {
 
     @Id

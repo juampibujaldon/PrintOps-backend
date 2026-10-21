@@ -5,7 +5,10 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "refresh_tokens")
+@Table(name = "refresh_tokens", indexes = {
+        @Index(name = "idx_refresh_tokens_expires", columnList = "expires_at"),
+        @Index(name = "idx_refresh_tokens_user", columnList = "user_id")
+})
 public class RefreshToken {
 
     @Id

@@ -10,7 +10,14 @@ import java.util.List;
 
 // Orden de trabajo de mantenimiento (US-04). Corazón de la trazabilidad.
 @Entity
-@Table(name = "maintenance_orders")
+@Table(name = "maintenance_orders", indexes = {
+        // Listados y dashboard: filtro por workspace + estado, ordenado por fecha.
+        @Index(name = "idx_orders_ws_status_created", columnList = "workspace_id, status, created_at"),
+        // Historial por impresora (paginado, mas reciente primero).
+        @Index(name = "idx_orders_printer_ws_created", columnList = "printer_id, workspace_id, created_at"),
+        // Scheduler: existe una orden abierta para la regla?
+        @Index(name = "idx_orders_rule_status", columnList = "maintenance_rule_id, status")
+})
 public class MaintenanceOrder {
 
     @Id

@@ -6,14 +6,14 @@ import com.printops.demo.entity.*;
 import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.security.TenantContext;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -23,6 +23,12 @@ import java.util.NoSuchElementException;
 public class PrinterHistoryService {
 
     private static final ZoneId ZONE = ZoneId.systemDefault();
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    // Tope de tamano de pagina: evita que un cliente pida el historial completo de una vez.
+    static final int MAX_PAGE_SIZE = 100;
+    // Limites abiertos cuando no hay filtro de fechas (el parametro no puede ser null).
+    private static final Instant MIN_INSTANT = Instant.EPOCH;
+    private static final Instant MAX_INSTANT = Instant.parse("9999-12-31T00:00:00Z");
 
     private final MaintenanceOrderRepository orderRepository;
     private final PrinterRepository printerRepository;
@@ -43,46 +49,25 @@ public class PrinterHistoryService {
         Printer printer = printerRepository.findByIdAndWorkspaceId(printerId, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + printerId));
 
-        List<MaintenanceOrder> all = loadOrders(printerId, filters);
-        int totalElements = all.size();
-        int size = filters.size() > 0 ? filters.size() : 20;
-        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int size = filters.size() > 0 ? Math.min(filters.size(), MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
         int page = Math.max(0, filters.page());
 
-        List<OrderHistoryItemDTO> items = all.stream()
-                .skip((long) page * size)
-                .limit(size)
-                .map(this::toHistoryItem)
-                .toList();
+        Page<MaintenanceOrder> result = loadPage(printerId, filters, PageRequest.of(page, size));
+        List<OrderHistoryItemDTO> items = result.getContent().stream().map(this::toHistoryItem).toList();
 
-        return new PrinterHistoryDTO(toSummary(printer), calculateMetrics(printerId), items, totalPages, page);
+        return new PrinterHistoryDTO(toSummary(printer), calculateMetrics(printerId), items, result.getTotalPages(), page);
     }
 
-    private List<MaintenanceOrder> loadOrders(Long printerId, HistoryFilters f) {
-        boolean hasType = f.type() != null;
-        boolean hasDate = f.from() != null || f.to() != null;
-
-        if (!hasType && !hasDate) {
-            return orderRepository.findByPrinterIdAndWorkspaceIdOrderByCreatedAtDesc(printerId, wsId());
-        }
-
-        Instant fromI = null;
-        Instant toI = null;
-        if (hasDate) {
+    private Page<MaintenanceOrder> loadPage(Long printerId, HistoryFilters f, PageRequest pageable) {
+        Instant fromI = MIN_INSTANT;
+        Instant toI = MAX_INSTANT;
+        if (f.from() != null || f.to() != null) {
             LocalDate from = f.from() != null ? f.from() : LocalDate.of(1970, 1, 1);
             LocalDate to = f.to() != null ? f.to() : LocalDate.now();
             fromI = from.atStartOfDay(ZONE).toInstant();
             toI = to.plusDays(1).atStartOfDay(ZONE).toInstant();
         }
-
-        if (hasType && hasDate) {
-            return orderRepository.findByPrinterIdAndWorkspaceIdAndTypeAndCreatedAtBetweenOrderByCreatedAtDesc(
-                    printerId, wsId(), f.type(), fromI, toI);
-        }
-        if (hasType) {
-            return orderRepository.findByPrinterIdAndWorkspaceIdAndTypeOrderByCreatedAtDesc(printerId, wsId(), f.type());
-        }
-        return orderRepository.findByPrinterIdAndWorkspaceIdAndCreatedAtBetweenOrderByCreatedAtDesc(printerId, wsId(), fromI, toI);
+        return orderRepository.findHistory(printerId, wsId(), f.type(), fromI, toI, pageable);
     }
 
     // ── Métricas agregadas ───────────────────────────────────────────────────
@@ -108,7 +93,8 @@ public class PrinterHistoryService {
             }
         }
 
-        Double mtbf = computeMtbf(orderRepository.getCorrectiveOrderDates(printerId, wsId()));
+        Double mtbf = orderRepository.averageDaysBetweenCorrectives(printerId, wsId());
+        if (mtbf != null) mtbf = round(mtbf);
 
         String mostPart = null;
         int mostCount = 0;
@@ -122,19 +108,6 @@ public class PrinterHistoryService {
         return new PrinterMetricsDTO(
                 totalInterventions, round(totalCost), preventive, corrective, calibration,
                 mtbf, mostPart, mostCount);
-    }
-
-    // Tiempo medio entre fallas: promedio de días entre correctivas COMPLETED consecutivas.
-    private Double computeMtbf(List<Instant> dates) {
-        if (dates == null || dates.size() < 2) {
-            return null;
-        }
-        List<Long> intervals = new ArrayList<>();
-        for (int i = 1; i < dates.size(); i++) {
-            intervals.add(ChronoUnit.DAYS.between(dates.get(i - 1), dates.get(i)));
-        }
-        double avg = intervals.stream().mapToLong(Long::longValue).average().orElse(0.0);
-        return round(avg);
     }
 
     // ── Uso de piezas (para el endpoint /history/parts) ──────────────────────

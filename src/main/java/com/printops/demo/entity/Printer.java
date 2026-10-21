@@ -6,7 +6,7 @@ import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
-@Table(name = "printers")
+@Table(name = "printers", indexes = @Index(name = "idx_printers_workspace", columnList = "workspace_id"))
 public class Printer {
 
     @Id

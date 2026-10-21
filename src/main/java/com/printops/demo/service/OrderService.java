@@ -12,7 +12,6 @@ import com.printops.demo.security.TenantContext;
 import com.printops.demo.util.UploadFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +23,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
 import java.util.List;
 import java.util.NoSuchElementException;
 
@@ -43,6 +41,7 @@ public class OrderService {
     private final SparePartService sparePartService;
     private final StatusTransitionValidator statusTransitionValidator;
     private final SimpMessagingTemplate messagingTemplate;
+    private final DashboardCache dashboardCache;
     private final String uploadDir = "uploads/orders/";
 
     public OrderService(MaintenanceOrderRepository orderRepository,
@@ -53,7 +52,8 @@ public class OrderService {
                         NotificationService notificationService,
                         SparePartService sparePartService,
                         StatusTransitionValidator statusTransitionValidator,
-                        SimpMessagingTemplate messagingTemplate) {
+                        SimpMessagingTemplate messagingTemplate,
+                        DashboardCache dashboardCache) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
         this.sparePartRepository = sparePartRepository;
@@ -63,6 +63,7 @@ public class OrderService {
         this.sparePartService = sparePartService;
         this.statusTransitionValidator = statusTransitionValidator;
         this.messagingTemplate = messagingTemplate;
+        this.dashboardCache = dashboardCache;
         try {
             Files.createDirectories(Paths.get(uploadDir));
         } catch (IOException e) {
@@ -75,7 +76,6 @@ public class OrderService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public OrderResponseDTO create(CreateOrderRequest dto, String creatorEmail) {
         Printer printer = printerRepository.findByIdAndWorkspaceId(dto.printerId(), wsId())
                 .orElseThrow(() -> new NoSuchElementException("Impresora no encontrada con id " + dto.printerId()));
@@ -128,6 +128,7 @@ public class OrderService {
                 "Nueva orden #" + saved.getId() + " creada para la impresora " + printer.getSerialNumber(),
                 saved.getId());
 
+        dashboardCache.invalidate();
         log.info("Orden creada id={} tipo={} impresora={} asignada a={}",
                 saved.getId(), type, printer.getSerialNumber(), creator.getEmail());
         return toResponse(saved);
@@ -135,20 +136,9 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public List<OrderResponseDTO> list(Long printerId, String status) {
-        List<MaintenanceOrder> orders;
-        if (printerId != null && status != null) {
-            orders = orderRepository.findByPrinterIdAndWorkspaceIdAndStatus(printerId, wsId(), parseStatus(status));
-        } else if (printerId != null) {
-            orders = orderRepository.findByPrinterIdAndWorkspaceId(printerId, wsId());
-        } else if (status != null) {
-            orders = orderRepository.findByWorkspaceIdAndStatus(wsId(), parseStatus(status));
-        } else {
-            orders = orderRepository.findByWorkspaceId(wsId());
-        }
-        return orders.stream()
-                .sorted(Comparator
-                        .comparing((MaintenanceOrder o) -> o.getStatus() != OrderStatus.IN_REVIEW)
-                        .thenComparing(MaintenanceOrder::getCreatedAt, Comparator.reverseOrder()))
+        // El orden (IN_REVIEW primero, luego mas recientes) lo resuelve la consulta.
+        OrderStatus filter = status != null ? parseStatus(status) : null;
+        return orderRepository.findForList(wsId(), printerId, filter).stream()
                 .map(this::toResponse)
                 .toList();
     }
@@ -160,7 +150,6 @@ public class OrderService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public OrderResponseDTO changeStatus(Long id, StatusChangeRequest request, String email) {
         MaintenanceOrder order = orderRepository.findByIdAndWorkspaceId(id, wsId())
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + id));
@@ -201,6 +190,7 @@ public class OrderService {
         // Notificaciones in-app + push por evento (US-05).
         notifyStatusChange(order, from, to, actor, request.comment());
 
+        dashboardCache.invalidate();
         return response;
     }
 
@@ -262,8 +252,7 @@ public class OrderService {
     private User findManagerForOrder(MaintenanceOrder order) {
         Long workspaceId = order.getWorkspaceId();
         if (workspaceId == null) return null;
-        List<User> managers = userRepository.findByRoleAndWorkspaceId(Role.MANAGER, workspaceId);
-        return managers.isEmpty() ? null : managers.get(0);
+        return userRepository.findFirstByRoleAndWorkspaceIdOrderByIdAsc(Role.MANAGER, workspaceId).orElse(null);
     }
 
     private void saveHistory(Long orderId, OrderStatus from, OrderStatus to, String comment, User actor) {

@@ -12,7 +12,6 @@ import com.printops.demo.repository.UserRepository;
 import com.printops.demo.security.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,17 +31,20 @@ public class SparePartService {
     private final MaintenanceOrderRepository orderRepository;
     private final NotificationService notificationService;
     private final UserRepository userRepository;
+    private final DashboardCache dashboardCache;
 
     public SparePartService(SparePartRepository sparePartRepository,
                             StockMovementRepository movementRepository,
                             MaintenanceOrderRepository orderRepository,
                             NotificationService notificationService,
-                            UserRepository userRepository) {
+                            UserRepository userRepository,
+                            DashboardCache dashboardCache) {
         this.sparePartRepository = sparePartRepository;
         this.movementRepository = movementRepository;
         this.orderRepository = orderRepository;
         this.notificationService = notificationService;
         this.userRepository = userRepository;
+        this.dashboardCache = dashboardCache;
     }
 
     private Long wsId() {
@@ -51,7 +53,6 @@ public class SparePartService {
 
     // ── CRUD ──────────────────────────────────────────────────────────────────
     @Transactional
-    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public SparePartDTO createPart(CreateSparePartRequest req, User user) {
         if (sparePartRepository.existsByPartNumberAndWorkspaceId(req.partNumber(), wsId())) {
             throw new IllegalArgumentException("Ya existe una pieza con ese número de parte.");
@@ -60,11 +61,12 @@ public class SparePartService {
         apply(part, req);
         part.setWorkspaceId(wsId());
         part.setCreatedBy(user);
-        return toDTO(sparePartRepository.save(part));
+        SparePartDTO created = toDTO(sparePartRepository.save(part));
+        dashboardCache.invalidate();
+        return created;
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public SparePartDTO updatePart(Long id, CreateSparePartRequest req) {
         SparePart part = find(id);
         if (!part.getPartNumber().equals(req.partNumber())
@@ -72,18 +74,17 @@ public class SparePartService {
             throw new IllegalArgumentException("Ya existe una pieza con ese número de parte.");
         }
         apply(part, req);
-        return toDTO(sparePartRepository.save(part));
+        SparePartDTO updated = toDTO(sparePartRepository.save(part));
+        dashboardCache.invalidate();
+        return updated;
     }
 
     @Transactional(readOnly = true)
     public List<SparePartDTO> list(String search, String category, boolean lowStock) {
-        String s = search != null ? search.trim().toLowerCase() : "";
-        return sparePartRepository.findByWorkspaceIdOrderByNameAsc(wsId()).stream()
-                .filter(p -> s.isEmpty()
-                        || (p.getName() != null && p.getName().toLowerCase().contains(s))
-                        || (p.getPartNumber() != null && p.getPartNumber().toLowerCase().contains(s)))
-                .filter(p -> category == null || category.isBlank() || category.equalsIgnoreCase(p.getCategory()))
-                .filter(p -> !lowStock || p.getStock() <= p.getMinStock())
+        String s = search != null ? search.trim() : "";
+        String pattern = s.isEmpty() ? "%" : "%" + escapeLike(s) + "%";
+        String cat = category == null || category.isBlank() ? "" : category;
+        return sparePartRepository.search(wsId(), pattern, cat, lowStock).stream()
                 .map(this::toDTO)
                 .toList();
     }
@@ -94,13 +95,13 @@ public class SparePartService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public void delete(Long id) {
         SparePart part = find(id);
         if (movementRepository.existsBySparePartId(id)) {
             throw new IllegalArgumentException("No se puede eliminar: la pieza tiene movimientos de stock registrados.");
         }
         sparePartRepository.delete(part);
+        dashboardCache.invalidate();
     }
 
     // ── Stock bajo y categorías ──────────────────────────────────────────────
@@ -118,7 +119,6 @@ public class SparePartService {
 
     // ── Movimientos ───────────────────────────────────────────────────────────
     @Transactional
-    @CacheEvict(cacheNames = "dashboard-metrics", allEntries = true)
     public SparePartDTO updateStock(Long partId, StockUpdateRequest req, User user) {
         SparePart part = find(partId);
         int before = part.getStock();
@@ -142,6 +142,7 @@ public class SparePartService {
         recordMovement(part, req.type(), before, change, after, blankToNull(req.note()), null, user);
 
         log.info("Stock de {} ajustado: {} → {} (tipo {})", part.getName(), before, after, req.type());
+        dashboardCache.invalidate();
         return toDTO(saved);
     }
 
@@ -167,6 +168,9 @@ public class SparePartService {
     public void deductStockForOrder(Long orderId) {
         MaintenanceOrder order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new NoSuchElementException("Orden no encontrada con id " + orderId));
+
+        // Supervisores del workspace: se consultan una sola vez, y solo si alguna pieza queda en stock bajo.
+        List<User> managers = null;
 
         for (OrderPart op : order.getParts()) {
             SparePart part = op.getSparePart();
@@ -195,7 +199,10 @@ public class SparePartService {
                     "Uso en orden #" + orderId, order, null);
 
             if (after <= part.getMinStock()) {
-                notifyLowStock(part, after, order.getWorkspaceId());
+                if (managers == null) {
+                    managers = userRepository.findByRoleAndWorkspaceId(Role.MANAGER, order.getWorkspaceId());
+                }
+                notifyLowStock(part, after, managers);
                 log.warn("Stock bajo tras orden {}: {} en {} unidades", orderId, part.getName(), after);
             }
         }
@@ -203,11 +210,16 @@ public class SparePartService {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     // FIX 8: alerta de stock bajo dirigida a los supervisores del workspace.
-    private void notifyLowStock(SparePart part, int after, Long workspaceId) {
+    private void notifyLowStock(SparePart part, int after, List<User> managers) {
         String message = "Stock bajo: " + part.getName() + " tiene solo " + after
                 + " unidades (mínimo: " + part.getMinStock() + ")";
-        userRepository.findByRoleAndWorkspaceId(Role.MANAGER, workspaceId).forEach(manager ->
+        managers.forEach(manager ->
                 notificationService.createFor(manager.getId(), "LOW_STOCK", message, null));
+    }
+
+    // Escapa los comodines de LIKE para que la busqueda sea por texto literal ('!' es el escape).
+    private static String escapeLike(String s) {
+        return s.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
     private SparePart find(Long id) {

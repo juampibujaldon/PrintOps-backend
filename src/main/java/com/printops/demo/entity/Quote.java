@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 // Guarda tanto los parámetros de entrada como los resultados calculados,
 // de modo que el historial sea estable aunque cambien los precios de referencia.
 @Entity
-@Table(name = "quotes")
+@Table(name = "quotes", indexes = @Index(name = "idx_quotes_workspace", columnList = "workspace_id, created_at"))
 public class Quote {
 
     @Id

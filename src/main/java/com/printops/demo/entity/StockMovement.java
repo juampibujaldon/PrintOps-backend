@@ -7,7 +7,7 @@ import java.time.Instant;
 
 // Auditoría de movimientos de stock (US-10). Inmutable: solo se inserta.
 @Entity
-@Table(name = "stock_movements")
+@Table(name = "stock_movements", indexes = @Index(name = "idx_stock_movements_part", columnList = "spare_part_id"))
 public class StockMovement {
 
     @Id

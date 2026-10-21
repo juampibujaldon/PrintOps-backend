@@ -34,6 +34,7 @@ public class QuoteService {
     private final NotificationService notificationService;
     private final QuotePdfService quotePdfService;
     private final PrinterComponentService componentService;
+    private final DashboardCache dashboardCache;
 
     public QuoteService(QuoteRepository quoteRepository,
                         PrinterRepository printerRepository,
@@ -42,7 +43,8 @@ public class QuoteService {
                         StatusHistoryRepository historyRepository,
                         NotificationService notificationService,
                         QuotePdfService quotePdfService,
-                        PrinterComponentService componentService) {
+                        PrinterComponentService componentService,
+                        DashboardCache dashboardCache) {
         this.quoteRepository = quoteRepository;
         this.printerRepository = printerRepository;
         this.userRepository = userRepository;
@@ -51,6 +53,7 @@ public class QuoteService {
         this.notificationService = notificationService;
         this.quotePdfService = quotePdfService;
         this.componentService = componentService;
+        this.dashboardCache = dashboardCache;
     }
 
     // ── Cálculo en tiempo real (sin persistir) ──────────────────────────────
@@ -285,6 +288,7 @@ public class QuoteService {
         order.setDescription("Mantenimiento correctivo automático: " + componentName
                 + " superó el 100% de vida útil (presupuesto " + q.getQuoteNumber() + ").");
         orderRepository.save(order);
+        dashboardCache.invalidate(); // la orden nueva cuenta en el dashboard (tras el commit)
 
         StatusHistory h = new StatusHistory();
         h.setOrderId(order.getId());

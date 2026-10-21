@@ -6,7 +6,7 @@ import jakarta.persistence.*;
 // Pieza usada en una orden (US-04 / US-10). Puede ser un repuesto del catálogo
 // (sparePart) o una pieza externa (sparePart == null) con datos libres.
 @Entity
-@Table(name = "order_parts")
+@Table(name = "order_parts", indexes = @Index(name = "idx_order_parts_order", columnList = "order_id"))
 public class OrderPart {
 
     @Id
