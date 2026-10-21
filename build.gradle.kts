@@ -31,6 +31,8 @@ dependencies {
 	runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
 	// Generación de PDF (US-11). OpenPDF: LGPL/MPL, fork de iText sin copyleft AGPL.
 	implementation("com.github.librepdf:openpdf:1.3.43")
+	// Verificacion de ID tokens de "Iniciar sesion con Google".
+	implementation("com.google.api-client:google-api-client:2.9.1")
 	// Notificaciones push con Firebase Cloud Messaging (US-05).
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")

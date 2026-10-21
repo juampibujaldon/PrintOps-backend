@@ -10,9 +10,13 @@ import org.springframework.stereotype.Service;
 
 import javax.crypto.SecretKey;
 import java.util.Date;
+import java.util.Optional;
 
 @Service
 public class JwtService {
+
+    private static final String PURPOSE_CLAIM = "purpose";
+    private static final String ONBOARDING_PURPOSE = "google_onboarding";
 
     @Value("${jwt.secret}")
     private String secret;
@@ -44,12 +48,37 @@ public class JwtService {
                 .compact();
     }
 
+    // Token de alta con Google: vive poco y lleva un claim "purpose" que lo distingue
+    // de un access token (ver validateToken y parseOnboardingToken).
+    public record OnboardingClaims(String googleSubject, String email, String name) {}
+
+    public String generateOnboardingToken(String googleSubject, String email, String name, long ttlMs) {
+        return Jwts.builder()
+                .subject(googleSubject)
+                .claim(PURPOSE_CLAIM, ONBOARDING_PURPOSE)
+                .claim("email", email)
+                .claim("name", name)
+                .issuedAt(new Date())
+                .expiration(new Date(System.currentTimeMillis() + ttlMs))
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    public Optional<OnboardingClaims> parseOnboardingToken(String token) {
+        try {
+            Claims c = getClaims(token);
+            if (!ONBOARDING_PURPOSE.equals(c.get(PURPOSE_CLAIM, String.class))) return Optional.empty();
+            return Optional.of(new OnboardingClaims(c.getSubject(), c.get("email", String.class), c.get("name", String.class)));
+        } catch (JwtException | IllegalArgumentException e) {
+            return Optional.empty();
+        }
+    }
+
+    // Solo access tokens: un token con "purpose" (p. ej. de onboarding) nunca autentica.
     public boolean validateToken(String token) {
         try {
-            Jwts.parser()
-                .verifyWith(getSigningKey())
-                .build()
-                .parseSignedClaims(token);
+            Claims c = getClaims(token);
+            if (c.get(PURPOSE_CLAIM) != null) return false;
             return true;
         } catch (JwtException | IllegalArgumentException e) {
             return false;

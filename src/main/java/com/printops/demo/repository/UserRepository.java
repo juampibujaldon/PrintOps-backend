@@ -12,6 +12,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
     boolean existsByEmail(String email);
     Optional<User> findByVerificationToken(String verificationToken);
+    Optional<User> findByGoogleSubject(String googleSubject);
     Optional<User> findByResetToken(String resetToken);
 
     // US-06: técnicos a los que se notifica al dispararse una regla.

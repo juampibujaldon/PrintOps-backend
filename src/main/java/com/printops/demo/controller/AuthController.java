@@ -35,6 +35,28 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    // 200 AuthResponse (existente/vinculada) o 202 con el paso de onboarding (sin cuenta).
+    @PostMapping("/google")
+    public ResponseEntity<?> google(@Valid @RequestBody GoogleLoginRequest request,
+                                    HttpServletRequest httpRequest) {
+        GoogleLoginResult result = authService.loginWithGoogle(
+                request.idToken(), request.deviceId(), request.rememberMe(),
+                obtenerIp(httpRequest), httpRequest.getHeader("User-Agent"));
+        if (result.auth() != null) {
+            return ResponseEntity.ok(result.auth());
+        }
+        return ResponseEntity.accepted().body(result.onboarding());
+    }
+
+    @PostMapping("/google/complete")
+    public ResponseEntity<AuthResponse> googleComplete(@Valid @RequestBody GoogleCompleteRequest request,
+                                                       HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.completeGoogleSignup(
+                request.onboardingToken(), request.deviceId(), request.rememberMe(),
+                request.inviteToken(), request.workspaceName(),
+                obtenerIp(httpRequest), httpRequest.getHeader("User-Agent")));
+    }
+
     @PostMapping("/register")
     public ResponseEntity<Map<String, String>> register(@Valid @RequestBody RegisterRequest request) {
         authService.register(request.email(), request.password(), request.inviteToken(), request.workspaceName());

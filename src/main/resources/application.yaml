@@ -77,6 +77,11 @@ app:
     operator-hourly-rate: ${METRICS_OPERATOR_HOURLY_RATE:20.0}
 
 
+google:
+  # Client IDs de OAuth aceptados como audience del ID token (separados por coma):
+  # el de la app web y, si corresponde, el de iOS. Vacio = login con Google deshabilitado (503).
+  client-ids: ${GOOGLE_CLIENT_IDS:501380806934-812jqumdo68npmgul1j4ontisbjl00p9.apps.googleusercontent.com}
+
 resend:
   # API key de Resend (no commitear el valor real; usar variable de entorno).
   api-key: ${RESEND_API_KEY:}

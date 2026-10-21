@@ -46,6 +46,14 @@ public class GlobalExceptionHandler {
                 "message", ex.getMessage()));
     }
 
+    @ExceptionHandler(GoogleNotConfiguredException.class)
+    public ResponseEntity<Map<String, String>> handleGoogleNotConfigured(GoogleNotConfiguredException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "error", "Google no configurado",
+                "code", "GOOGLE_NOT_CONFIGURED",
+                "message", ex.getMessage()));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<Map<String, String>> handleBadCredentials(BadCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

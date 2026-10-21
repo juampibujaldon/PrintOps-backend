@@ -51,6 +51,10 @@ public class User {
     private Instant resetTokenExpiry;
 
 
+    // "sub" de la cuenta de Google vinculada (null si nunca inicio sesion con Google).
+    @Column(name = "google_subject", unique = true)
+    private String googleSubject;
+
     @PrePersist
     protected void onCreate() {
         // FIX 5: no forzar `enabled = true`. El default lo da el inicializador del
@@ -86,6 +90,9 @@ public class User {
 
     public Long getWorkspaceId() { return workspaceId; }
     public void setWorkspaceId(Long workspaceId) { this.workspaceId = workspaceId; }
+
+    public String getGoogleSubject() { return googleSubject; }
+    public void setGoogleSubject(String googleSubject) { this.googleSubject = googleSubject; }
 
     public String getResetToken() { return resetToken; }
     public void setResetToken(String resetToken) { this.resetToken = resetToken; }

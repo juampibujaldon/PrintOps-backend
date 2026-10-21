@@ -2,6 +2,9 @@
 package com.printops.demo.service;
 
 import com.printops.demo.dto.AuthResponse;
+import com.printops.demo.dto.GoogleLoginResult;
+import com.printops.demo.dto.GoogleOnboardingResponse;
+import com.printops.demo.exception.GoogleNotConfiguredException;
 import com.printops.demo.dto.SessionInfo;
 import com.printops.demo.entity.*;
 import com.printops.demo.exception.EmailAlreadyRegisteredException;
@@ -39,6 +42,7 @@ public class AuthService {
     private final EmailService emailService;
     private final WorkspaceRepository workspaceRepository;
     private final WorkspaceInviteRepository inviteRepository;
+    private final GoogleTokenVerifier googleVerifier;
 
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
@@ -62,12 +66,15 @@ public class AuthService {
     private static final long VERIFICATION_TOKEN_TTL_SECONDS = 24 * 3600L;
     private static final long INVITE_TOKEN_TTL_SECONDS = 7 * 24 * 3600L;
     private static final long RESET_TOKEN_TTL_SECONDS = 3600L;
+    private static final long ONBOARDING_TOKEN_TTL_MS = 10 * 60 * 1000L;
 
     public AuthService(AuthenticationManager authManager, JwtService jwtService,
                        UserRepository userRepository, RefreshTokenRepository refreshTokenRepository,
                        TokenBlacklistRepository blacklistRepository, LoginAuditRepository auditRepository,
                        PasswordEncoder passwordEncoder, EmailService emailService,
-                       WorkspaceRepository workspaceRepository, WorkspaceInviteRepository inviteRepository) {
+                       WorkspaceRepository workspaceRepository, WorkspaceInviteRepository inviteRepository,
+                       GoogleTokenVerifier googleVerifier) {
+        this.googleVerifier = googleVerifier;
         this.authManager = authManager;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
@@ -128,8 +135,13 @@ public class AuthService {
         user.setEnabled(true);
         user.setEmailVerified(true); // Auto-verificar sin email
 
-        // Con inviteToken → TECNICO que se une a un workspace existente.
-        // Sin inviteToken → MANAGER que crea su propio workspace.
+        assignRoleAndWorkspace(user, email, inviteToken, workspaceName);
+        userRepository.save(user);
+    }
+
+    // Con inviteToken → TECNICO que se une a un workspace existente.
+    // Sin inviteToken → MANAGER que crea su propio workspace. Compartido por register y Google.
+    private void assignRoleAndWorkspace(User user, String email, String inviteToken, String workspaceName) {
         if (inviteToken != null && !inviteToken.isBlank()) {
             WorkspaceInvite invite = inviteRepository.findByToken(inviteToken)
                     .orElseThrow(() -> new InvalidInviteException(InvalidInviteException.Reason.NOT_FOUND,
@@ -158,8 +170,115 @@ public class AuthService {
             user.setRole(Role.MANAGER);
             user.setWorkspaceId(ws.getId());
         }
+    }
 
-        userRepository.save(user);
+    // ── Iniciar sesión con Google ────────────────────────────────────────────
+
+    // noRollbackFor: el audit FAILED de una verificación fallida tiene que persistir.
+    @Transactional(noRollbackFor = BadCredentialsException.class)
+    public GoogleLoginResult loginWithGoogle(String idToken, String deviceId, boolean rememberMe,
+                                             String ip, String userAgent) {
+        requireGoogleConfigured();
+        rejectIfLocked(ip);
+
+        GoogleIdentity identity = googleVerifier.verify(idToken)
+                .filter(GoogleIdentity::emailVerified)
+                .filter(i -> i.subject() != null && i.email() != null)
+                .orElseThrow(() -> failedGoogleAttempt(null, ip, userAgent));
+
+        Optional<User> linked = userRepository.findByGoogleSubject(identity.subject());
+        if (linked.isPresent()) {
+            return new GoogleLoginResult(startSession(linked.get(), deviceId, rememberMe, ip, userAgent), null);
+        }
+
+        Optional<User> sameEmail = userRepository.findByEmail(identity.email());
+        if (sameEmail.isPresent()) {
+            User user = sameEmail.get();
+            if (user.getGoogleSubject() != null) {
+                // Ese email ya está vinculado a OTRA cuenta de Google: no se re-vincula.
+                throw failedGoogleAttempt(identity.email(), ip, userAgent);
+            }
+            requireEnabled(user);
+            // El registro con contraseña no verifica el email: un tercero pudo haberlo
+            // pre-registrado. Al vincular se cierran TODAS las sesiones previas.
+            user.setGoogleSubject(identity.subject());
+            user.setEmailVerified(true);
+            userRepository.save(user);
+            refreshTokenRepository.revokeAllByUser(user);
+            return new GoogleLoginResult(startSession(user, deviceId, rememberMe, ip, userAgent), null);
+        }
+
+        String onboarding = jwtService.generateOnboardingToken(
+                identity.subject(), identity.email(), identity.name(), ONBOARDING_TOKEN_TTL_MS);
+        return new GoogleLoginResult(null, new GoogleOnboardingResponse(onboarding, identity.email(), identity.name()));
+    }
+
+    @Transactional(noRollbackFor = BadCredentialsException.class)
+    public AuthResponse completeGoogleSignup(String onboardingToken, String deviceId, boolean rememberMe,
+                                             String inviteToken, String workspaceName,
+                                             String ip, String userAgent) {
+        requireGoogleConfigured();
+        rejectIfLocked(ip);
+
+        JwtService.OnboardingClaims claims = jwtService.parseOnboardingToken(onboardingToken)
+                .orElseThrow(() -> failedGoogleAttempt(null, ip, userAgent));
+        String email = claims.email();
+
+        if (userRepository.findByEmail(email).isPresent() || userRepository.findByGoogleSubject(claims.googleSubject()).isPresent()) {
+            throw new EmailAlreadyRegisteredException("El email ya está registrado. Iniciá sesión con Google nuevamente.");
+        }
+
+        User user = new User();
+        user.setEmail(email);
+        // Columna NOT NULL: se guarda el hash de un secreto aleatorio que nadie conoce.
+        user.setPassword(passwordEncoder.encode(randomSecret()));
+        user.setEnabled(true);
+        user.setEmailVerified(true); // Google ya verificó el email
+        user.setGoogleSubject(claims.googleSubject());
+        assignRoleAndWorkspace(user, email, inviteToken, workspaceName);
+        user = userRepository.save(user);
+
+        return startSession(user, deviceId, rememberMe, ip, userAgent);
+    }
+
+    private void requireGoogleConfigured() {
+        if (!googleVerifier.isConfigured()) throw new GoogleNotConfiguredException();
+    }
+
+    private void requireEnabled(User user) {
+        if (!user.isEnabled()) throw new DisabledException("Cuenta deshabilitada");
+    }
+
+    // Registra el intento fallido (audit + contador por IP) y devuelve el 401 a lanzar.
+    private BadCredentialsException failedGoogleAttempt(String email, String ip, String userAgent) {
+        // login_audit.email es NOT NULL: sin email conocido se registra un marcador.
+        registrarAudit(null, email != null ? email : "(google: token no verificado)", ip, userAgent, LoginAudit.Action.FAILED);
+        incrementarIntentos(ip);
+        return new BadCredentialsException("No se pudo verificar la cuenta de Google");
+    }
+
+    // Cierre común de un login exitoso (igual que el de contraseña).
+    private AuthResponse startSession(User user, String deviceId, boolean rememberMe, String ip, String userAgent) {
+        requireEnabled(user);
+        failedAttempts.remove(ip);
+        lockedUntil.remove(ip);
+        String accessToken = jwtService.generateAccessToken(user.getEmail(), user.getRole().name(), user.getWorkspaceId());
+        refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
+        RefreshToken refreshToken = crearRefreshToken(user, deviceId, rememberMe);
+        registrarAudit(user.getId(), user.getEmail(), ip, userAgent, LoginAudit.Action.LOGIN);
+        return buildAuthResponse(accessToken, refreshToken.getToken(), user);
+    }
+
+    private void rejectIfLocked(String ip) {
+        if (isIpBloqueada(ip)) {
+            throw new LockedException("IP bloqueada por múltiples intentos fallidos. Espere 15 minutos.");
+        }
+    }
+
+    private static String randomSecret() {
+        byte[] bytes = new byte[32];
+        RANDOM.nextBytes(bytes);
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     // Verifica el email usando el token del magic link.
