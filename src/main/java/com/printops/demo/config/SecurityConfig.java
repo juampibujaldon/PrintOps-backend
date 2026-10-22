@@ -5,6 +5,7 @@ import com.printops.demo.service.UserDetailsServiceImpl;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -32,6 +33,9 @@ public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
     private final UserDetailsServiceImpl userDetailsService;
+
+    @Value("${app.cors.allowed-origins:*}")
+    private List<String> allowedOrigins;
 
     public SecurityConfig(JwtAuthFilter jwtAuthFilter, UserDetailsServiceImpl userDetailsService) {
         this.jwtAuthFilter = jwtAuthFilter;
@@ -100,12 +104,12 @@ public class SecurityConfig {
         return http.build();
     }
 
-    // CORS para desarrollo: permite cualquier origen. En producción hay que
-    // restringir los orígenes a los dominios reales de la app/web.
+    // Orígenes de app.cors.allowed-origins (CORS_ALLOWED_ORIGINS). En producción conviene
+    // listar los dominios reales de la web en vez de "*".
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOriginPatterns(List.of("*"));
+        config.setAllowedOriginPatterns(allowedOrigins.stream().map(String::trim).toList());
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("Authorization"));

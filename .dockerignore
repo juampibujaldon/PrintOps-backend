@@ -1,0 +1,11 @@
+.git
+.gradle
+build
+bin
+uploads
+graphify-out
+perf
+.env
+.env.*
+.claude
+*.md

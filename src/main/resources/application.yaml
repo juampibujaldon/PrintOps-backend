@@ -25,8 +25,9 @@ spring:
       spec: maximumSize=100,expireAfterWrite=5m
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/printops
-    username: printops
+    # En la nube: DB_URL=jdbc:postgresql://<host>:<puerto>/<base> (formato JDBC, no postgres://).
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/printops}
+    username: ${DB_USERNAME:printops}
     # Sin default: fuera de "dev" tiene que venir de la variable de entorno.
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
@@ -62,7 +63,8 @@ jwt:
   refresh-expiration-remember: 2592000000  # 30 días en ms
 
 server:
-  port: 8083
+  # Las plataformas (Railway, Render...) asignan el puerto en PORT.
+  port: ${PORT:8083}
   # Respuestas JSON/texto >= 1 KB viajan comprimidas (gzip) si el cliente lo acepta.
   compression:
     enabled: true
@@ -72,6 +74,10 @@ server:
 app:
   # URL pública del backend, usada para armar el magic link de verificación.
   base-url: ${APP_BASE_URL:http://localhost:8083}
+  # Orígenes permitidos por CORS y por el WebSocket, separados por coma
+  # (p. ej. https://printops.vercel.app,http://localhost:5173). "*" = cualquiera.
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
   metrics:
     # Tarifa horaria del operario para el costo de mano de obra del dashboard (US-08).
     operator-hourly-rate: ${METRICS_OPERATOR_HOURLY_RATE:20.0}

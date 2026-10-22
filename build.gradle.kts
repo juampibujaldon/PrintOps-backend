@@ -43,6 +43,16 @@ dependencies {
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
+// Un solo jar ejecutable con nombre fijo (build/libs/app.jar): sin el "-plain" que
+// confunde a los comandos de arranque que buscan *.jar.
+tasks.jar {
+	enabled = false
+}
+
+tasks.bootJar {
+	archiveFileName = "app.jar"
+}
+
 tasks.withType<Test> {
 	useJUnitPlatform()
 }

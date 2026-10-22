@@ -4,6 +4,7 @@ import com.printops.demo.repository.TokenBlacklistRepository;
 import com.printops.demo.security.AuthUser;
 import com.printops.demo.service.JwtService;
 import com.printops.demo.service.UserDetailsServiceImpl;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
@@ -24,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.Principal;
+import java.util.List;
 
 @Configuration
 @EnableWebSocketMessageBroker
@@ -32,12 +34,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final JwtService jwtService;
     private final UserDetailsServiceImpl userDetailsService;
     private final TokenBlacklistRepository blacklistRepository;
+    private final List<String> allowedOrigins;
 
     public WebSocketConfig(JwtService jwtService, UserDetailsServiceImpl userDetailsService,
-                           TokenBlacklistRepository blacklistRepository) {
+                           TokenBlacklistRepository blacklistRepository,
+                           @Value("${app.cors.allowed-origins:*}") List<String> allowedOrigins) {
         this.jwtService = jwtService;
         this.userDetailsService = userDetailsService;
         this.blacklistRepository = blacklistRepository;
+        this.allowedOrigins = allowedOrigins.stream().map(String::trim).toList();
     }
 
     @Override
@@ -52,7 +57,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // Endpoint donde el frontend se conectará al WebSocket
         registry.addEndpoint("/ws")
-                .setAllowedOriginPatterns("*");
+                .setAllowedOriginPatterns(allowedOrigins.toArray(String[]::new));
     }
 
     // El handshake HTTP de /ws es público, así que la autenticación se hace en el
