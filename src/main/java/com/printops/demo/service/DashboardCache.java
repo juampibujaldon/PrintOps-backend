@@ -37,7 +37,9 @@ public class DashboardCache {
     void evict(Invalidated event) {
         Cache cache = cacheManager.getCache(NAME);
         if (cache != null) {
-            cache.clear();
+            // invalidate() y no clear(): clear() puede ser asincrono (en Redis el UNLINK
+            // llega despues de que el metodo retorna) y un GET inmediato veria datos viejos.
+            cache.invalidate();
         }
     }
 }

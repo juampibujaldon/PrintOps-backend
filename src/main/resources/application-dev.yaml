@@ -3,6 +3,9 @@
 # Estos valores no sirven para producción: allá se usa SPRING_PROFILES_ACTIVE=prod
 # y las variables de entorno DB_PASSWORD / JWT_SECRET (sin estos fallbacks).
 spring:
+  # En local no hace falta Redis: cache en memoria. CACHE_TYPE=redis para probar Redis.
+  cache:
+    type: ${CACHE_TYPE:caffeine}
   datasource:
     password: ${DB_PASSWORD:GoodNews}
 

@@ -18,11 +18,25 @@ spring:
     scheduling:
       enabled: true
 
-  # FIX 2: cache real con TTL (Caffeine) para el dashboard de métricas.
+  # Cache del dashboard de métricas: Redis (compartida entre instancias, sobrevive a
+  # los redeploys). Config de serialización/TTL en RedisCacheConfig. En dev y test se
+  # usa Caffeine en memoria (ver application-dev.yaml); se puede forzar con CACHE_TYPE.
   cache:
-    type: caffeine
+    type: ${CACHE_TYPE:redis}
     caffeine:
       spec: maximumSize=100,expireAfterWrite=5m
+
+  data:
+    redis:
+      # Railway expone REDIS_URL (redis://default:<pass>@<host>:<puerto>).
+      url: ${REDIS_URL:redis://localhost:6379}
+      # Timeouts cortos: si Redis no responde, el dashboard se calcula sin cache
+      # en vez de colgarse 60 s (default de Lettuce).
+      timeout: 2s
+      connect-timeout: 2s
+      # Redis es solo cache: sin repositorios Spring Data Redis (los repos son JPA).
+      repositories:
+        enabled: false
 
   datasource:
     # En la nube: DB_URL=jdbc:postgresql://<host>:<puerto>/<base> (formato JDBC, no postgres://).

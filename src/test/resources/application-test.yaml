@@ -2,6 +2,9 @@
 # inyecta IntegrationTestBase desde un contenedor Testcontainers. El placeholder
 # de abajo falla rapido si alguien levanta el contexto sin ese contenedor.
 spring:
+  # Los tests no levantan Redis: cache en memoria con la misma semántica.
+  cache:
+    type: caffeine
   datasource:
     url: jdbc:postgresql://invalid.invalid:1/printops_test_placeholder
     username: test
