@@ -108,8 +108,9 @@ app:
   #   contenedor se borra en cada deploy).
   # - local: carpeta en disco + URLs firmadas con HMAC servidas por /api/files. En Railway
   #   solo sirve con un Volume montado en STORAGE_LOCAL_DIR.
+  # - none (default en producción): no se pueden subir fotos ni logos; el front los oculta.
   storage:
-    type: ${STORAGE_TYPE:local}
+    type: ${STORAGE_TYPE:none}
     url-ttl: ${STORAGE_URL_TTL:PT1H}
     local-dir: ${STORAGE_LOCAL_DIR:uploads}
     s3:

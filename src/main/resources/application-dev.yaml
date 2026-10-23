@@ -17,6 +17,9 @@ resend:
   log-when-disabled: ${EMAIL_LOG_WHEN_DISABLED:true}
 
 app:
+  # En local las fotos van a ./uploads.
+  storage:
+    type: ${STORAGE_TYPE:local}
   auth:
     refresh-cookie:
       # En local el front corre por http://localhost: una cookie Secure no se guardaría.

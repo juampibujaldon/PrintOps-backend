@@ -73,6 +73,13 @@ class FeaturesIT extends IntegrationTestBase {
         return m.group(1);
     }
 
+    @Test
+    void publicConfigReportsUploadsEnabled() throws Exception {
+        HttpResponse<String> res = send("GET", "/api/public/config", null, null);
+        assertThat(res.statusCode()).isEqualTo(200);
+        assertThat(res.body()).contains("\"uploadsEnabled\":true");
+    }
+
     // ── Cola de trabajos, uso real y bobinas ─────────────────────────────────
     @Test
     void acceptedQuoteBecomesJob_finishingRecordsHoursAndGramsAndConsumesSpool() {

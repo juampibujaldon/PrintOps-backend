@@ -29,6 +29,9 @@ public class StorageConfig {
         if ("s3".equalsIgnoreCase(props.type())) {
             return s3(props);
         }
+        if ("none".equalsIgnoreCase(props.type())) {
+            return new DisabledFileStorage();
+        }
         return new LocalFileStorage(Path.of(props.localDir() != null ? props.localDir() : "uploads"),
                 deriveKey(jwtSecret), props.urlTtl(), Clock.systemUTC());
     }

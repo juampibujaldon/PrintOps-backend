@@ -19,4 +19,9 @@ public interface FileStorage {
     // Contenido del archivo (p. ej. el logo para dibujarlo en el PDF). Vacío si no existe o
     // la clave no es del storage (URLs heredadas: nunca se descargan desde el servidor).
     java.util.Optional<byte[]> read(String key);
+
+    // false con STORAGE_TYPE=none: el front oculta la subida de fotos y logos.
+    default boolean uploadsEnabled() {
+        return true;
+    }
 }

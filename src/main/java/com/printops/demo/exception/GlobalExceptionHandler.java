@@ -54,6 +54,14 @@ public class GlobalExceptionHandler {
                 "message", ex.getMessage()));
     }
 
+    @ExceptionHandler(UploadsDisabledException.class)
+    public ResponseEntity<Map<String, String>> handleUploadsDisabled(UploadsDisabledException ex) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "error", "Subida de imágenes deshabilitada",
+                "code", "UPLOADS_DISABLED",
+                "message", ex.getMessage()));
+    }
+
     @ExceptionHandler(BadCredentialsException.class)
     public ResponseEntity<Map<String, String>> handleBadCredentials(BadCredentialsException ex) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

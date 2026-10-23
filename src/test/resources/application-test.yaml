@@ -35,4 +35,5 @@ app:
   rate-limit:
     enabled: false
   storage:
+    type: local
     local-dir: build/test-uploads
