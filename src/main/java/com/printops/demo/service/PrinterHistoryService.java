@@ -136,7 +136,7 @@ public class PrinterHistoryService {
 
     // ── Mapeos ───────────────────────────────────────────────────────────────
     private OrderHistoryItemDTO toHistoryItem(MaintenanceOrder o) {
-        List<OrderHistoryItemDTO.PartUsedDTO> parts = o.getParts().stream()
+        List<OrderHistoryItemDTO.UsedPart> parts = o.getParts().stream()
                 .map(op -> {
                     SparePart sp = op.getSparePart();
                     boolean external = sp == null;
@@ -145,7 +145,7 @@ public class PrinterHistoryService {
                             : (sp.getUnitPrice() != null ? sp.getUnitPrice() : 0.0);
                     String number = external ? op.getExternalPartNumber() : sp.getPartNumber();
                     String name = external ? op.getExternalPartName() : sp.getName();
-                    return new OrderHistoryItemDTO.PartUsedDTO(
+                    return new OrderHistoryItemDTO.UsedPart(
                             sp != null ? sp.getId() : null,
                             name != null ? name : number,
                             number,
@@ -154,7 +154,7 @@ public class PrinterHistoryService {
                 })
                 .toList();
 
-        double partsCost = parts.stream().mapToDouble(OrderHistoryItemDTO.PartUsedDTO::cost).sum();
+        double partsCost = parts.stream().mapToDouble(OrderHistoryItemDTO.UsedPart::cost).sum();
 
         List<String> photos = o.getPhotos().stream().map(ph -> fileStorage.urlFor(ph.getStorageKey())).toList();
 

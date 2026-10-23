@@ -9,9 +9,9 @@ import jakarta.validation.constraints.PositiveOrZero;
 import java.util.List;
 
 public record PurchaseOrderRequest(Long supplierId, String notes,
-                                   @NotEmpty(message = "Agregá al menos un repuesto") @Valid List<Line> lines) {
+                                   @NotEmpty(message = "Agregá al menos un repuesto") @Valid List<LineInput> lines) {
 
-    public record Line(@NotNull(message = "Repuesto obligatorio") Long partId,
+    public record LineInput(@NotNull(message = "Repuesto obligatorio") Long partId,
                        @NotNull @Min(value = 1, message = "La cantidad debe ser al menos 1") Integer quantity,
                        @PositiveOrZero(message = "El costo no puede ser negativo") Double unitCost) {
     }

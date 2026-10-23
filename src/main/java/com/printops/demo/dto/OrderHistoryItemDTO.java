@@ -15,12 +15,12 @@ public record OrderHistoryItemDTO(
         Instant closedAt,
         Integer actualMinutes,
         String technicianName,
-        List<PartUsedDTO> partsUsed,
+        List<UsedPart> partsUsed,
         List<String> photoUrls,
         double partsCost
 ) {
     // Pieza usada en la orden con su costo (US-07).
-    public record PartUsedDTO(
+    public record UsedPart(
             Long partId,
             String partName,
             String partNumber,

@@ -177,7 +177,7 @@ public class PurchaseOrderService {
     private void apply(PurchaseOrder po, PurchaseOrderRequest r) {
         po.setSupplier(r.supplierId() != null ? supplierService.find(r.supplierId()) : null);
         po.setNotes(r.notes() == null || r.notes().isBlank() ? null : r.notes().trim());
-        for (PurchaseOrderRequest.Line in : r.lines()) {
+        for (PurchaseOrderRequest.LineInput in : r.lines()) {
             SparePart part = partRepository.findByIdAndWorkspaceId(in.partId(), wsId())
                     .orElseThrow(() -> new NoSuchElementException("Repuesto no encontrado"));
             PurchaseOrderLine l = new PurchaseOrderLine();
@@ -216,9 +216,9 @@ public class PurchaseOrderService {
 
     static PurchaseOrderDTO toDTO(PurchaseOrder po) {
         Supplier s = po.getSupplier();
-        List<PurchaseOrderDTO.Line> lines = po.getLines().stream().map(l -> {
+        List<PurchaseOrderDTO.OrderLine> lines = po.getLines().stream().map(l -> {
             SparePart p = l.getSparePart();
-            return new PurchaseOrderDTO.Line(l.getId(), p.getId(), p.getName(), p.getPartNumber(), l.getQuantity(),
+            return new PurchaseOrderDTO.OrderLine(l.getId(), p.getId(), p.getName(), p.getPartNumber(), l.getQuantity(),
                     l.getUnitCost(), p.getStock() != null ? p.getStock() : 0, p.getMinStock() != null ? p.getMinStock() : 0);
         }).toList();
         return new PurchaseOrderDTO(po.getId(), po.getNumber(), po.getStatus().name(),
