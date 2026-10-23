@@ -13,5 +13,8 @@ WORKDIR /app
 COPY --from=build /app/build/libs/app.jar app.jar
 RUN mkdir -p uploads
 ENV SPRING_PROFILES_ACTIVE=prod
+# Escucha en IPv4 e IPv6: la red privada de Railway (*.railway.internal) usa IPv6. El front
+# llega por ahí y así el backend ve la IP real del cliente (rate limit por IP).
+ENV SERVER_ADDRESS=::
 EXPOSE 8083
 ENTRYPOINT ["sh", "-c", "exec java $JAVA_OPTS -jar app.jar"]
