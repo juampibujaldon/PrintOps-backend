@@ -205,6 +205,28 @@ public class GlobalExceptionHandler {
                 .body(Map.of("error", "No encontrado", "message", ex.getMessage()));
     }
 
+    // Errores del protocolo HTTP: antes caían en el handler genérico y respondían 500.
+    @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, String>> handleMethodNotSupported(
+            org.springframework.web.HttpRequestMethodNotSupportedException ex) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+                .body(Map.of("error", "Método no permitido", "message", "El método " + ex.getMethod() + " no está soportado en esta ruta."));
+    }
+
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<Map<String, String>> handleMediaType(org.springframework.web.HttpMediaTypeNotSupportedException ex) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                .body(Map.of("error", "Formato no soportado", "message", "Tipo de contenido no soportado."));
+    }
+
+    @ExceptionHandler({
+            org.springframework.web.multipart.support.MissingServletRequestPartException.class,
+            org.springframework.web.bind.MissingRequestHeaderException.class})
+    public ResponseEntity<Map<String, String>> handleBadRequestParams(Exception ex) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("error", "Datos inválidos", "message", "Falta un parámetro o tiene un formato inválido."));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, String>> handleGeneral(Exception ex) {
         // Log del stacktrace completo: es lo que permite ver la causa real
