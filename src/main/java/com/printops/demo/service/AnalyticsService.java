@@ -173,10 +173,11 @@ public class AnalyticsService {
         Map<Long, Double> parts = toMap(orderPartRepository.partsCostByPrinter(ws, fromI, toI));
         Map<Long, Double> minutes = toMap(orderRepository.sumActualMinutesByPrinter(ws, fromI, toI));
         Map<Long, double[]> sales = new HashMap<>(); // count, hours, revenue, cost, energy
+        double[] unassigned = new double[5];
         for (Quote q : quoteRepository.findWonInPeriod(ws, WON, from.atStartOfDay(), to.plusDays(1).atStartOfDay())) {
-            if (q.getPrinter() == null) continue;
             int units = q.getUnits() != null ? q.getUnits() : 1;
-            double[] a = sales.computeIfAbsent(q.getPrinter().getId(), k -> new double[5]);
+            // Presupuestos sin impresora: fila propia para que el total no los pierda.
+            double[] a = q.getPrinter() == null ? unassigned : sales.computeIfAbsent(q.getPrinter().getId(), k -> new double[5]);
             a[0] += 1;
             a[1] += nz(q.getPrintingHours()) * units;
             a[2] += nz(q.getTotalPrice());
@@ -194,6 +195,13 @@ public class AnalyticsService {
                     a[2] > 0 ? round1(profit / a[2] * 100.0) : null, a[1] > 0 ? round2(profit / a[1]) : 0.0));
         }
         rows.sort(Comparator.comparingDouble(ProfitabilityDTO.Row::profit).reversed());
+        if (unassigned[0] > 0) {
+            double profit = unassigned[2] - unassigned[3];
+            rows.add(new ProfitabilityDTO.Row(null, "Sin impresora asignada", (int) unassigned[0], round2(unassigned[1]),
+                    round2(unassigned[2]), round2(unassigned[3]), round2(unassigned[4]), 0.0, round2(profit),
+                    unassigned[2] > 0 ? round1(profit / unassigned[2] * 100.0) : null,
+                    unassigned[1] > 0 ? round2(profit / unassigned[1]) : 0.0));
+        }
         double revenue = rows.stream().mapToDouble(ProfitabilityDTO.Row::revenue).sum();
         double cost = rows.stream().mapToDouble(ProfitabilityDTO.Row::productionCost).sum();
         double maint = rows.stream().mapToDouble(ProfitabilityDTO.Row::maintenanceCost).sum();

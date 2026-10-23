@@ -65,7 +65,8 @@ public interface QuoteRepository extends JpaRepository<Quote, Long> {
     @EntityGraph(attributePaths = "printer")
     Optional<Quote> findByIdAndWorkspaceId(Long id, Long workspaceId);
 
-    @EntityGraph(attributePaths = "printer")
+    // La vista pública se arma fuera de la transacción: trae también los gastos extra.
+    @EntityGraph(attributePaths = {"printer", "extraCosts"})
     Optional<Quote> findByPublicToken(String publicToken);
 
     // Rentabilidad: presupuestos aceptados o cobrados en el período, con su impresora.

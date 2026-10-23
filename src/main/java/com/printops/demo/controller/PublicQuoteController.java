@@ -82,11 +82,13 @@ public class PublicQuoteController {
         Workspace w = q.getWorkspaceId() != null ? workspaceRepository.findById(q.getWorkspaceId()).orElse(null) : null;
         int units = q.getUnits() != null ? q.getUnits() : 1;
         double discount = q.getDiscountPercent() != null ? q.getDiscountPercent() : 0.0;
-        double finalUnit = q.getTotalPrice() != null ? q.getTotalPrice() / units : 0.0;
+        double extras = q.getExtraCostsTotal() != null ? q.getExtraCostsTotal() : 0.0;
+        double finalUnit = q.getTotalPrice() != null ? (q.getTotalPrice() - extras) / units : 0.0;
         PublicQuoteDTO.Workshop workshop = w == null ? null
                 : new PublicQuoteDTO.Workshop(w.getName(), w.getContactEmail(), w.getPhone(), w.getAddress(), w.getLogoUrl());
         return new PublicQuoteDTO(q.getQuoteNumber(), q.getStatus().name(), q.getClientName(), q.getJobDescription(),
                 units, Math.round(finalUnit * 100.0) / 100.0, discount, q.getTotalPrice() != null ? q.getTotalPrice() : 0.0,
-                w != null ? w.getCurrency() : "ARS", validUntil(q), isExpired(q), q.getClientDecisionAt(), workshop);
+                w != null ? w.getCurrency() : "ARS", validUntil(q), isExpired(q), q.getClientDecisionAt(), workshop,
+                q.getExtraCosts().stream().map(e -> new com.printops.demo.dto.ExtraCostItem(e.getDescription(), e.getAmount())).toList());
     }
 }

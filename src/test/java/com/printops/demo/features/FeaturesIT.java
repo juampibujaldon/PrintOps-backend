@@ -241,7 +241,7 @@ class FeaturesIT extends IntegrationTestBase {
 
         HttpResponse<String> view = send("GET", "/api/public/quotes/" + token, null, null);
         assertThat(view.statusCode()).isEqualTo(200);
-        assertThat(view.body()).contains("\"status\":\"SENT\"").contains("totalPrice")
+        assertThat(view.body()).contains("\"status\":\"SENT\"").contains("totalPrice").contains("\"extraCosts\":[]")
                 .doesNotContain("totalCost").doesNotContain("marginPercent").doesNotContain("totalProfit");
         assertThat(send("GET", "/api/public/quotes/inexistente-0000000000", null, null).statusCode()).isEqualTo(404);
 
@@ -435,5 +435,14 @@ class FeaturesIT extends IntegrationTestBase {
         assertThat(row.profit()).isEqualTo(Math.round((q.totalPrice() - q.totalCost()) * 100.0) / 100.0);
         assertThat(row.hoursSold()).isEqualTo(6.0);
         assertThat(r.totals().revenue()).isEqualTo(q.totalPrice());
+
+        // Un presupuesto sin impresora también cuenta (fila "Sin impresora asignada").
+        loginAs(w.tech);
+        QuoteResponseDTO loose = quoteService.create(quote(null, null, 50, 1, 1, null), w.tech.getEmail());
+        quoteService.changeStatus(loose.id(), QuoteStatus.ACCEPTED);
+        loginAs(w.manager);
+        ProfitabilityDTO r2 = analyticsService.profitability(LocalDate.now().minusDays(1), LocalDate.now());
+        assertThat(r2.printers()).anyMatch(x -> x.printerId() == null && x.revenue() == loose.totalPrice());
+        assertThat(r2.totals().revenue()).isEqualTo(Math.round((q.totalPrice() + loose.totalPrice()) * 100.0) / 100.0);
     }
 }
