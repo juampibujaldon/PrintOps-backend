@@ -1,0 +1,16 @@
+{
+  "name": "printops-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente local de PrintOps: lee OctoPrint, Moonraker (Klipper) y Bambu Lab y envía la telemetría al backend.",
+  "type": "module",
+  "bin": { "printops-agent": "src/index.js" },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "mqtt": "5.16.0"
+  }
+}

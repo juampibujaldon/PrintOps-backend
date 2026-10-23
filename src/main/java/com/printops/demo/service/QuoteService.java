@@ -29,31 +29,36 @@ public class QuoteService {
     private final QuoteRepository quoteRepository;
     private final PrinterRepository printerRepository;
     private final UserRepository userRepository;
-    private final MaintenanceOrderRepository orderRepository;
-    private final StatusHistoryRepository historyRepository;
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+
     private final NotificationService notificationService;
     private final QuotePdfService quotePdfService;
-    private final PrinterComponentService componentService;
-    private final DashboardCache dashboardCache;
+    private final WearCalculator wearCalculator;
+    private final PrintJobService printJobService;
+    private final FilamentSpoolRepository spoolRepository;
+    private final LiveUpdates liveUpdates;
+    private final String frontendUrl;
 
     public QuoteService(QuoteRepository quoteRepository,
                         PrinterRepository printerRepository,
                         UserRepository userRepository,
-                        MaintenanceOrderRepository orderRepository,
-                        StatusHistoryRepository historyRepository,
                         NotificationService notificationService,
                         QuotePdfService quotePdfService,
-                        PrinterComponentService componentService,
-                        DashboardCache dashboardCache) {
+                        WearCalculator wearCalculator,
+                        PrintJobService printJobService,
+                        FilamentSpoolRepository spoolRepository,
+                        LiveUpdates liveUpdates,
+                        @org.springframework.beans.factory.annotation.Value("${app.frontend-url:http://localhost:5173}") String frontendUrl) {
         this.quoteRepository = quoteRepository;
         this.printerRepository = printerRepository;
         this.userRepository = userRepository;
-        this.orderRepository = orderRepository;
-        this.historyRepository = historyRepository;
         this.notificationService = notificationService;
         this.quotePdfService = quotePdfService;
-        this.componentService = componentService;
-        this.dashboardCache = dashboardCache;
+        this.wearCalculator = wearCalculator;
+        this.printJobService = printJobService;
+        this.spoolRepository = spoolRepository;
+        this.liveUpdates = liveUpdates;
+        this.frontendUrl = frontendUrl.replaceAll("/+$", "");
     }
 
     // ── Cálculo en tiempo real (sin persistir) ──────────────────────────────
@@ -63,11 +68,11 @@ public class QuoteService {
         Printer printer = findPrinter(r.printerId());
         Costs c = computeCosts(r);
         double totalHours = r.printingHours() * units(r.units());
-        ComponentWearDTO wear = calculateWear(totalHours, r.filamentType(), printer);
+        ComponentWearDTO wear = wearCalculator.calculate(totalHours, r.filamentType(), printer);
         return new QuoteResultsDTO(
                 c.filamentCost(), c.energyCost(), c.designCost(), c.operatorCost(),
                 c.totalCost(), c.unitPrice(), c.totalPrice(), c.totalProfit(), c.roi(),
-                wear);
+                wear, c.extras());
     }
 
     // ── CRUD ────────────────────────────────────────────────────────────────
@@ -124,12 +129,7 @@ public class QuoteService {
         Quote q = find(id);
         QuoteStatus from = q.getStatus();
         validateTransition(from, to);
-        // Al salir de DRAFT (enviado o aceptado directamente) se aplica el
-        // desgaste real sobre la impresora.
-        if (from == QuoteStatus.DRAFT) {
-            applyWear(q);
-        }
-        q.setStatus(to);
+        applyTransition(q, to, q.getCreatedBy());
         return toResponse(quoteRepository.save(q));
     }
 
@@ -142,7 +142,10 @@ public class QuoteService {
                 orig.getDesignHours(), orig.getDesignHourlyRate(), orig.getOperatorHourlyRate(),
                 orig.getMarginPercent(), orig.getDiscountPercent(), orig.getUnits(),
                 orig.getPrinter() != null ? orig.getPrinter().getId() : null,
-                orig.getClientName(), orig.getJobDescription());
+                orig.getClientName(), orig.getJobDescription(),
+                orig.getSpool() != null ? orig.getSpool().getId() : null,
+                orig.getExtraCosts().stream().map(e -> new ExtraCostItem(e.getDescription(), e.getAmount())).toList(),
+                orig.isDraftWatermark());
 
         Quote q = new Quote();
         q.setCreatedBy(orig.getCreatedBy());
@@ -184,126 +187,24 @@ public class QuoteService {
         double discount = unitPrice * nz(r.discountPercent()) / 100.0;
         double finalUnitPrice = unitPrice - discount;
 
+        // Gastos extra (rodamientos, envío, insertos...): se trasladan a costo, sin margen ni
+        // descuento, así que suman igual al costo y al precio y no cambian la ganancia.
+        double extras = extrasTotal(r.extraCosts());
+
         int units = units(r.units());
-        double totalPrice = finalUnitPrice * units;
-        double totalCost = totalCostUnit * units;
+        double totalPrice = finalUnitPrice * units + extras;
+        double totalCost = totalCostUnit * units + extras;
         double totalProfit = totalPrice - totalCost;
         double roi = totalCost != 0 ? (totalProfit / totalCost) * 100.0 : 0.0;
 
         return new Costs(round2(filamentCost), round2(energyCost), round2(designCost),
                 round2(operatorCost), round2(totalCost), round2(unitPrice),
-                round2(totalPrice), round2(totalProfit), round2(roi));
+                round2(totalPrice), round2(totalProfit), round2(roi), round2(extras));
     }
 
-    // Vida útil base por componente (horas). La boquilla depende del filamento.
-    // Desgaste de cada componente = horas desde que se instaló el repuesto + horas
-    // de este trabajo, contra su vida útil (según la calidad del repuesto).
-    public ComponentWearDTO calculateWear(double totalHours, FilamentType type, Printer printer) {
-        return new ComponentWearDTO(
-                componentStatus(printer, ComponentType.NOZZLE, type, totalHours),
-                componentStatus(printer, ComponentType.HOTEND, type, totalHours),
-                componentStatus(printer, ComponentType.BELTS, type, totalHours),
-                componentStatus(printer, ComponentType.BEARINGS, type, totalHours),
-                componentStatus(printer, ComponentType.HEATBED, type, totalHours));
-    }
-
-    private ComponentWearDTO.ComponentStatus componentStatus(Printer printer, ComponentType component,
-                                                             FilamentType filament, double jobHours) {
-        PrinterComponent c = componentService.forPrinterOrDefault(printer, component);
-        double lifespan = componentService.lifespanHours(c, filament);
-        double hoursAfter = componentService.hoursSinceInstall(c, printer) + jobHours;
-        return componentStatus(lifespan, hoursAfter);
-    }
-
-    private ComponentWearDTO.ComponentStatus componentStatus(double lifespan, double hoursAfter) {
-        double percent = (hoursAfter / lifespan) * 100.0;
-        double remaining = Math.max(0.0, lifespan - hoursAfter);
-        boolean critical = percent >= 90.0;
-        return new ComponentWearDTO.ComponentStatus(round2(percent), round2(hoursAfter), round2(remaining), critical);
-    }
-
-    // ── Desgaste real al confirmar ──────────────────────────────────────────
-    private void applyWear(Quote q) {
-        Printer printer = q.getPrinter();
-        if (printer == null) return;
-
-        double delta = (q.getPrintingHours() != null ? q.getPrintingHours() : 0.0)
-                * (q.getUnits() != null ? q.getUnits() : 1);
-        ComponentWearDTO wear = calculateWear(delta, q.getFilamentType(), printer);
-
-        double prev = printer.getTotalPrintingHours() != null ? printer.getTotalPrintingHours() : 0.0;
-        printer.setTotalPrintingHours(prev + delta);
-        // Sin esto las reglas FILAMENT_GRAMS nunca se disparaban: el contador quedaba en 0.
-        double grams = (q.getFilamentGrams() != null ? q.getFilamentGrams() : 0.0)
-                * (q.getUnits() != null ? q.getUnits() : 1);
-        double prevGrams = printer.getTotalFilamentGrams() != null ? printer.getTotalFilamentGrams() : 0.0;
-        printer.setTotalFilamentGrams(prevGrams + grams);
-        printerRepository.save(printer);
-
-        handleWearAlerts(q, printer, wear);
-    }
-
-    // Una alerta por repuesto (al pasar el 90%) y una sola orden correctiva abierta
-    // por repuesto (al pasar el 100%). Antes se repetían en cada presupuesto, porque
-    // el desgaste nunca se reseteaba. Se vuelven a habilitar al reemplazar el repuesto.
-    private void handleWearAlerts(Quote q, Printer printer, ComponentWearDTO wear) {
-        ComponentWearDTO.ComponentStatus[] comps = {
-                wear.nozzle(), wear.hotend(), wear.belts(), wear.bearings(), wear.heatbed()};
-        ComponentType[] types = {
-                ComponentType.NOZZLE, ComponentType.HOTEND, ComponentType.BELTS,
-                ComponentType.BEARINGS, ComponentType.HEATBED};
-        String[] names = {"boquilla", "hotend", "correas", "rodamientos", "cama caliente"};
-        Long recipient = q.getCreatedBy() != null ? q.getCreatedBy().getId() : null;
-
-        for (int i = 0; i < comps.length; i++) {
-            ComponentWearDTO.ComponentStatus status = comps[i];
-            if (status.percent() < 90.0) continue;
-            PrinterComponent component = componentService.getOrCreate(printer.getId(), types[i]);
-
-            if (status.percent() > 100.0) {
-                if (!hasOpenOrder(component.getOpenOrderId())) {
-                    component.setOpenOrderId(createCorrectiveOrder(q, printer, names[i], recipient));
-                }
-            } else if (!component.isWearAlertSent()) {
-                notificationService.createFor(recipient, "WEAR_ALERT",
-                        "La " + names[i] + " de la impresora " + printer.getSerialNumber()
-                                + " superó el " + (int) status.percent() + "% de vida útil (presupuesto "
-                                + q.getQuoteNumber() + ").", null);
-            }
-            component.setWearAlertSent(true);
-        }
-    }
-
-    private boolean hasOpenOrder(Long orderId) {
-        if (orderId == null) return false;
-        return orderRepository.findById(orderId)
-                .map(o -> o.getStatus() != OrderStatus.COMPLETED && o.getStatus() != OrderStatus.CANCELLED)
-                .orElse(false);
-    }
-
-    private Long createCorrectiveOrder(Quote q, Printer printer, String componentName, Long recipient) {
-        MaintenanceOrder order = new MaintenanceOrder();
-        order.setPrinter(printer);
-        order.setAssignedTo(q.getCreatedBy());
-        order.setType(OrderType.CORRECTIVE);
-        order.setStatus(OrderStatus.PENDING);
-        // Sin workspace la orden violaba el NOT NULL y hacía fallar el paso a SENT.
-        order.setWorkspaceId(printer.getWorkspaceId() != null ? printer.getWorkspaceId() : q.getWorkspaceId());
-        order.setDescription("Mantenimiento correctivo automático: " + componentName
-                + " superó el 100% de vida útil (presupuesto " + q.getQuoteNumber() + ").");
-        orderRepository.save(order);
-        dashboardCache.invalidate(); // la orden nueva cuenta en el dashboard (tras el commit)
-
-        StatusHistory h = new StatusHistory();
-        h.setOrderId(order.getId());
-        h.setToStatus(OrderStatus.PENDING);
-        h.setChangedBy(q.getCreatedBy());
-        historyRepository.save(h);
-
-        notificationService.createFor(recipient, "ORDER_CREATED",
-                "Orden correctiva #" + order.getId() + " creada automáticamente por desgaste de "
-                        + componentName + " en " + printer.getSerialNumber() + ".", order.getId());
-        return order.getId();
+    static double extrasTotal(List<ExtraCostItem> items) {
+        if (items == null) return 0.0;
+        return items.stream().filter(i -> i != null && i.amount() != null).mapToDouble(ExtraCostItem::amount).sum();
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────
@@ -324,6 +225,9 @@ public class QuoteService {
         q.setJobDescription(blankToNull(r.jobDescription()));
 
         q.setPrinter(findPrinter(r.printerId()));
+        q.setSpool(r.spoolId() != null
+                ? spoolRepository.findByIdAndWorkspaceId(r.spoolId(), wsId()).orElse(null)
+                : null);
 
         Costs c = computeCosts(r);
         q.setFilamentCost(c.filamentCost());
@@ -335,9 +239,107 @@ public class QuoteService {
         q.setTotalPrice(c.totalPrice());
         q.setTotalProfit(c.totalProfit());
         q.setRoi(c.roi());
+        q.setExtraCostsTotal(c.extras());
+
+        q.getExtraCosts().clear();
+        if (r.extraCosts() != null) {
+            int pos = 0;
+            for (ExtraCostItem item : r.extraCosts()) {
+                if (item == null || item.description() == null || item.description().isBlank()) continue;
+                QuoteExtraCost e = new QuoteExtraCost();
+                e.setQuote(q);
+                e.setDescription(item.description().trim());
+                e.setAmount(round2(item.amount() != null ? item.amount() : 0.0));
+                e.setPosition(pos++);
+                q.getExtraCosts().add(e);
+            }
+        }
+        if (r.draftWatermark() != null) q.setDraftWatermark(r.draftWatermark());
 
         double totalHours = r.printingHours() * units(r.units());
-        q.setComponentWear(toJson(calculateWear(totalHours, r.filamentType(), q.getPrinter())));
+        q.setComponentWear(toJson(wearCalculator.calculate(totalHours, r.filamentType(), q.getPrinter())));
+    }
+
+    // Efectos de un cambio de estado. Aceptado → entra a la cola de trabajos de impresión.
+    private void applyTransition(Quote q, QuoteStatus to, User actor) {
+        q.setStatus(to);
+        if (to == QuoteStatus.ACCEPTED) {
+            printJobService.createFromQuote(q, actor);
+        }
+    }
+
+    // ── Link público para el cliente ────────────────────────────────────────
+    // Genera (o reutiliza) el token del link. Compartir un borrador lo marca como enviado.
+    @Transactional
+    public QuoteResponseDTO share(Long id) {
+        Quote q = find(id);
+        if (q.getStatus() == QuoteStatus.REJECTED) {
+            throw new IllegalArgumentException("Un presupuesto rechazado no se puede compartir.");
+        }
+        if (q.getStatus() == QuoteStatus.DRAFT) {
+            applyTransition(q, QuoteStatus.SENT, q.getCreatedBy());
+        }
+        if (q.getPublicToken() == null) {
+            byte[] bytes = new byte[24];
+            RANDOM.nextBytes(bytes);
+            q.setPublicToken(java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes));
+            q.setSharedAt(java.time.Instant.now());
+        }
+        return toResponse(quoteRepository.save(q));
+    }
+
+    @Transactional
+    public QuoteResponseDTO unshare(Long id) {
+        Quote q = find(id);
+        q.setPublicToken(null);
+        q.setSharedAt(null);
+        return toResponse(quoteRepository.save(q));
+    }
+
+    @Transactional(readOnly = true)
+    public Quote findByPublicToken(String token) {
+        if (token == null || token.length() < 16) throw new NoSuchElementException("Presupuesto no encontrado");
+        return quoteRepository.findByPublicToken(token)
+                .orElseThrow(() -> new NoSuchElementException("Presupuesto no encontrado"));
+    }
+
+    @Transactional(readOnly = true)
+    public byte[] publicPdf(String token) {
+        return quotePdfService.generatePdf(findByPublicToken(token));
+    }
+
+    // Decisión del cliente desde el link público. Solo sobre presupuestos enviados.
+    @Transactional
+    public Quote decideFromPublicLink(String token, boolean accept, String clientName, String note) {
+        Quote q = findByPublicToken(token);
+        if (q.getStatus() != QuoteStatus.SENT) {
+            throw new IllegalArgumentException("Este presupuesto ya no admite cambios.");
+        }
+        QuoteStatus to = accept ? QuoteStatus.ACCEPTED : QuoteStatus.REJECTED;
+        applyTransition(q, to, q.getCreatedBy());
+        q.setClientDecisionAt(java.time.Instant.now());
+        String who = blankToNull(clientName);
+        String text = blankToNull(note);
+        String decisionNote = who == null ? text : (text == null ? who : who + ": " + text);
+        q.setClientDecisionNote(decisionNote != null && decisionNote.length() > 1000 ? decisionNote.substring(0, 1000) : decisionNote);
+        quoteRepository.save(q);
+
+        String msg = "El cliente " + (accept ? "aceptó" : "rechazó") + " el presupuesto " + q.getQuoteNumber()
+                + (q.getClientName() != null ? " (" + q.getClientName() + ")" : "") + ".";
+        java.util.Set<Long> recipients = new java.util.LinkedHashSet<>();
+        if (q.getCreatedBy() != null) recipients.add(q.getCreatedBy().getId());
+        userRepository.findByRoleAndWorkspaceId(Role.MANAGER, q.getWorkspaceId()).forEach(u -> recipients.add(u.getId()));
+        for (Long r : recipients) {
+            notificationService.createFor(r, accept ? "QUOTE_ACCEPTED" : "QUOTE_REJECTED", msg, null);
+            liveUpdates.toUser(r, "notification", java.util.Map.of(
+                    "title", accept ? "Presupuesto aceptado" : "Presupuesto rechazado",
+                    "body", msg, "quoteId", q.getId()));
+        }
+        return q;
+    }
+
+    public String publicUrl(String token) {
+        return frontendUrl + "/q/" + token;
     }
 
     private void validateTransition(QuoteStatus from, QuoteStatus to) {
@@ -406,7 +408,15 @@ public class QuoteService {
                 printerName,
                 q.getStatus() != null ? q.getStatus().name() : null,
                 q.getCreatedAt(),
-                pdfUrl
+                pdfUrl,
+                q.getSpool() != null ? q.getSpool().getId() : null,
+                q.getPublicToken() != null ? publicUrl(q.getPublicToken()) : null,
+                q.getSharedAt(),
+                q.getClientDecisionAt(),
+                q.getClientDecisionNote(),
+                q.getExtraCosts().stream().map(e -> new ExtraCostItem(e.getDescription(), e.getAmount())).toList(),
+                q.getExtraCostsTotal(),
+                q.isDraftWatermark()
         );
     }
 
@@ -416,7 +426,7 @@ public class QuoteService {
                 r.printerWatts(), r.energyPriceKwh(), r.printingHours(),
                 r.designHours(), r.designHourlyRate(), r.operatorHourlyRate(),
                 r.marginPercent(), r.discountPercent(), r.units(),
-                r.printerId(), r.clientName(), r.jobDescription());
+                r.printerId(), r.clientName(), r.jobDescription(), null, r.extraCosts(), null);
     }
 
     private String toJson(ComponentWearDTO wear) {
@@ -453,5 +463,6 @@ public class QuoteService {
     }
 
     private record Costs(double filamentCost, double energyCost, double designCost, double operatorCost,
-                         double totalCost, double unitPrice, double totalPrice, double totalProfit, double roi) {}
+                         double totalCost, double unitPrice, double totalPrice, double totalProfit, double roi,
+                         double extras) {}
 }

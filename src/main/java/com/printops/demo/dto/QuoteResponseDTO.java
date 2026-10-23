@@ -35,5 +35,14 @@ public record QuoteResponseDTO(
         String printerName,
         String status,
         LocalDateTime createdAt,
-        String pdfUrl
+        String pdfUrl,
+        Long spoolId,
+        // Link público para el cliente (null si no se compartió).
+        String publicUrl,
+        java.time.Instant sharedAt,
+        java.time.Instant clientDecisionAt,
+        String clientDecisionNote,
+        java.util.List<ExtraCostItem> extraCosts,
+        Double extraCostsTotal,
+        boolean draftWatermark
 ) {}

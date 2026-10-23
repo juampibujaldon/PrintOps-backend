@@ -46,9 +46,11 @@ public class QuotePdfService {
     private static final int DEFAULT_VALIDITY_DAYS = 15;
 
     private final WorkspaceRepository workspaceRepository;
+    private final com.printops.demo.storage.FileStorage fileStorage;
 
-    public QuotePdfService(WorkspaceRepository workspaceRepository) {
+    public QuotePdfService(WorkspaceRepository workspaceRepository, com.printops.demo.storage.FileStorage fileStorage) {
         this.workspaceRepository = workspaceRepository;
+        this.fileStorage = fileStorage;
     }
 
     public byte[] generatePdf(Quote q) {
@@ -62,8 +64,9 @@ public class QuotePdfService {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         Document doc = new Document(PageSize.A4, 40, 40, 44, 70);
         PdfWriter writer = PdfWriter.getInstance(doc, out);
+        // La marca de agua es opcional por presupuesto y nunca aparece fuera de borrador.
         writer.setPageEvent(new QuoteFrame(validityDays, ws != null ? ws.getName() : null,
-                q.getStatus() == QuoteStatus.DRAFT));
+                q.getStatus() == QuoteStatus.DRAFT && q.isDraftWatermark()));
         doc.open();
 
         doc.add(header(q, ws, validityDays));
@@ -87,9 +90,13 @@ public class QuotePdfService {
         t.setWidthPercentage(100);
         setWidths(t, 1.35f, 1f);
 
-        // Izquierda: nombre del taller (o PrintOps) + contacto.
+        // Izquierda: logo (si el taller subió uno), nombre del taller (o PrintOps) + contacto.
         PdfPCell left = noBorder(new PdfPCell());
         left.setVerticalAlignment(Element.ALIGN_TOP);
+        Image logo = logo(ws);
+        if (logo != null) {
+            left.addElement(logo);
+        }
         String brand = ws != null && notBlank(ws.getName()) ? ws.getName() : "PrintOps";
         left.addElement(new Paragraph(brand, font(FontFactory.HELVETICA_BOLD, 22, INK)));
         Paragraph tagline = new Paragraph("Impresión 3D a medida", font(FontFactory.HELVETICA, 10, CELESTE_DARK));
@@ -126,6 +133,22 @@ public class QuotePdfService {
         right.setVerticalAlignment(Element.ALIGN_TOP);
         t.addCell(right);
         return t;
+    }
+
+    // Logo escalado a una caja de 150 x 56 pt. Si la imagen está dañada se omite: el PDF sale igual.
+    private Image logo(Workspace ws) {
+        if (ws == null || ws.getLogoUrl() == null) return null;
+        return fileStorage.read(ws.getLogoUrl()).map(bytes -> {
+            try {
+                Image img = Image.getInstance(bytes);
+                img.scaleToFit(150, 56);
+                img.setAlignment(Image.ALIGN_LEFT);
+                img.setSpacingAfter(6);
+                return img;
+            } catch (Exception e) {
+                return null;
+            }
+        }).orElse(null);
     }
 
     // ── Tarjeta del cliente y del trabajo ──
@@ -180,14 +203,27 @@ public class QuotePdfService {
         t.addCell(bodyCell(String.valueOf(units), Element.ALIGN_CENTER));
         t.addCell(bodyCell(money(unitPrice), Element.ALIGN_RIGHT));
         t.addCell(bodyCell(money(unitPrice * units), Element.ALIGN_RIGHT));
+
+        // Gastos extra: cada uno como línea propia (se cobran a costo).
+        for (var extra : q.getExtraCosts()) {
+            PdfPCell c = bodyCell(null, Element.ALIGN_LEFT);
+            c.addElement(new Paragraph(extra.getDescription(), font(FontFactory.HELVETICA_BOLD, 10, INK)));
+            c.addElement(new Paragraph("Gasto adicional", font(FontFactory.HELVETICA, 9, MUTED)));
+            t.addCell(c);
+            t.addCell(bodyCell("1", Element.ALIGN_CENTER));
+            t.addCell(bodyCell(money(nz(extra.getAmount())), Element.ALIGN_RIGHT));
+            t.addCell(bodyCell(money(nz(extra.getAmount())), Element.ALIGN_RIGHT));
+        }
         return t;
     }
 
     // ── Resumen: subtotal, descuento y total destacado ──
     private PdfPTable totals(Quote q) {
         int units = units(q.getUnits());
-        double subtotal = nz(q.getUnitPrice()) * units;
+        double extras = nz(q.getExtraCostsTotal());
+        double subtotal = nz(q.getUnitPrice()) * units + extras;
         double total = nz(q.getTotalPrice());
+        // El descuento aplica solo a la impresión; los extras van a costo.
         double discount = Math.max(0.0, subtotal - total);
 
         PdfPTable wrapper = new PdfPTable(2);

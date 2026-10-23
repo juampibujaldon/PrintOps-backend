@@ -10,7 +10,7 @@ import java.util.regex.Pattern;
 // Reglas comunes de claves: carpeta conocida + nombre aleatorio generado por el servidor.
 final class StorageKeys {
 
-    static final Set<String> FOLDERS = Set.of("orders", "printers");
+    static final Set<String> FOLDERS = Set.of("orders", "printers", "logos");
     private static final Pattern KEY = Pattern.compile("^[a-z]+/[0-9a-f-]{36}\\.[a-z]{3,4}$");
 
     private StorageKeys() {

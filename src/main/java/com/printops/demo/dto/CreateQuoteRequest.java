@@ -55,5 +55,15 @@ public record CreateQuoteRequest(
 
         String clientName,
 
-        String jobDescription
+        String jobDescription,
+
+        // Bobina de la que sale el filamento (opcional): define el precio por gramo y se
+        // descuenta al terminar el trabajo de impresión.
+        Long spoolId,
+
+        @jakarta.validation.Valid @Size(max = 30, message = "Máximo 30 gastos extra")
+        java.util.List<ExtraCostItem> extraCosts,
+
+        // null = mantener (o true en un presupuesto nuevo).
+        Boolean draftWatermark
 ) {}

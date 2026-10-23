@@ -15,4 +15,8 @@ public interface FileStorage {
     String urlFor(String key);
 
     void delete(String key);
+
+    // Contenido del archivo (p. ej. el logo para dibujarlo en el PDF). Vacío si no existe o
+    // la clave no es del storage (URLs heredadas: nunca se descargan desde el servidor).
+    java.util.Optional<byte[]> read(String key);
 }

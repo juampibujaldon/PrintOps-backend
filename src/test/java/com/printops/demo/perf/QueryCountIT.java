@@ -100,7 +100,7 @@ class QueryCountIT extends IntegrationTestBase {
         loginAs(w.tech);
         for (int i = 0; i < 10; i++) {
             quoteService.create(new CreateQuoteRequest(100.0, 0.05, FilamentType.PLA, 200.0, 0.1, 5.0,
-                    0.0, 0.0, 10.0, 30.0, 0.0, 1, w.printers.get(i % 5).getId(), "Cliente " + i, "Trabajo"), w.tech.getEmail());
+                    0.0, 0.0, 10.0, 30.0, 0.0, 1, w.printers.get(i % 5).getId(), "Cliente " + i, "Trabajo", null, null, null), w.tech.getEmail());
         }
 
         var m = measure("QuoteService.list (10 quotes, 5 printers)",
@@ -108,7 +108,9 @@ class QueryCountIT extends IntegrationTestBase {
 
         assertThat(m.result()).hasSize(10);
         assertThat(m.result().get(0).printerName()).isNotNull();
-        assertThat(m.m().statements()).isEqualTo(1);
+        // 1 consulta con la impresora + 1 en lote para los gastos extra de todos (@BatchSize):
+        // constante, no crece con la cantidad de presupuestos.
+        assertThat(m.m().statements()).isEqualTo(2);
     }
 
     @Test

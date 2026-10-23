@@ -56,5 +56,6 @@ public record QuoteCalculateRequest(
 
         String clientName,
 
-        String jobDescription
+        String jobDescription,
+        @jakarta.validation.Valid java.util.List<ExtraCostItem> extraCosts
 ) {}

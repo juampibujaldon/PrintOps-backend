@@ -146,6 +146,27 @@ public class SparePartService {
         return toDTO(saved);
     }
 
+    // Ingreso de una compra recibida (orden de compra). Registra el movimiento PURCHASE y,
+    // si vino con costo, actualiza el precio unitario del repuesto.
+    @Transactional
+    public void addPurchasedStock(SparePart part, int quantity, Double unitCost, String note, User user) {
+        if (quantity <= 0) return;
+        int before = part.getStock() != null ? part.getStock() : 0;
+        int after = before + quantity;
+        part.setStock(after);
+        if (unitCost != null && unitCost > 0) part.setUnitPrice(unitCost);
+        sparePartRepository.save(part);
+        recordMovement(part, MovementType.PURCHASE, before, quantity, after, note, null, user);
+        dashboardCache.invalidate();
+    }
+
+    @Transactional
+    public SparePartDTO assignSupplier(Long partId, Supplier supplier) {
+        SparePart part = find(partId);
+        part.setSupplier(supplier);
+        return toDTO(sparePartRepository.save(part));
+    }
+
     @Transactional(readOnly = true)
     public List<StockMovementDTO> getMovements(Long partId) {
         find(partId); // valida que la pieza pertenezca al workspace
@@ -268,7 +289,9 @@ public class SparePartService {
                 p.getUnitPrice() != null ? p.getUnitPrice() : 0.0,
                 p.getSupplierUrl(),
                 stock <= minStock,
-                stock == 0);
+                stock == 0,
+                // getId() de un proxy lazy no dispara una consulta (sin N+1 en el listado).
+                p.getSupplier() != null ? p.getSupplier().getId() : null);
     }
 
     private String blankToNull(String value) {

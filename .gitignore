@@ -34,3 +34,7 @@ uploads/
 
 # graphify (grafo de conocimiento local, se regenera)
 graphify-out/
+
+# Agente local
+agent/node_modules/
+agent/config.json

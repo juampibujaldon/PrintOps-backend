@@ -1,0 +1,29 @@
+{
+  "apiUrl": "https://printops.up.railway.app",
+  "intervalSeconds": 10,
+  "printers": [
+    {
+      "name": "Ender 3 (OctoPrint)",
+      "type": "octoprint",
+      "token": "pod_TOKEN_DE_LA_IMPRESORA",
+      "url": "http://192.168.0.20",
+      "apiKey": "API_KEY_DE_OCTOPRINT",
+      "filamentDiameter": 1.75,
+      "filamentDensity": 1.24
+    },
+    {
+      "name": "Voron (Klipper/Moonraker)",
+      "type": "moonraker",
+      "token": "pod_TOKEN_DE_LA_IMPRESORA",
+      "url": "http://192.168.0.21:7125"
+    },
+    {
+      "name": "Bambu X1C",
+      "type": "bambu",
+      "token": "pod_TOKEN_DE_LA_IMPRESORA",
+      "host": "192.168.0.22",
+      "serial": "01S00A000000000",
+      "accessCode": "12345678"
+    }
+  ]
+}

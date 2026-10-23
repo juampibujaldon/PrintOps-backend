@@ -21,6 +21,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // FIX 8: supervisores (MANAGER) de un workspace, para alertas de stock bajo.
     List<User> findByRoleAndWorkspaceId(Role role, Long workspaceId);
 
+    List<User> findByWorkspaceId(Long workspaceId);
+
     // Un solo supervisor del workspace (el de menor id) sin cargarlos a todos.
     Optional<User> findFirstByRoleAndWorkspaceIdOrderByIdAsc(Role role, Long workspaceId);
 }

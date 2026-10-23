@@ -27,6 +27,8 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+// @PreAuthorize en acciones que solo puede hacer el supervisor dentro de rutas compartidas.
+@org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity
 public class SecurityConfig {
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);

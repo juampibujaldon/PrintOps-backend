@@ -38,6 +38,17 @@ public class WorkspaceController {
 
     // ── Quote Defaults ──
 
+    @PostMapping(value = "/me/logo", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<WorkspaceResponse> uploadLogo(@AuthenticationPrincipal UserDetails userDetails,
+                                                        @RequestPart("logo") org.springframework.web.multipart.MultipartFile logo) {
+        return ResponseEntity.ok(workspaceService.uploadLogo(userDetails.getUsername(), logo));
+    }
+
+    @DeleteMapping("/me/logo")
+    public ResponseEntity<WorkspaceResponse> deleteLogo(@AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(workspaceService.deleteLogo(userDetails.getUsername()));
+    }
+
     @GetMapping("/quote-defaults")
     public ResponseEntity<QuoteDefaultsDTO> getQuoteDefaults(
             @AuthenticationPrincipal UserDetails userDetails) {

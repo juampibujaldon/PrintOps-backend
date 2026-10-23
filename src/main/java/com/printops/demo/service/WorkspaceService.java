@@ -30,15 +30,65 @@ public class WorkspaceService {
     private final WorkspaceInviteRepository inviteRepository;
     private final UserRepository userRepository;
     private final EmailService emailService;
+    private final com.printops.demo.storage.FileStorage fileStorage;
+
+    static final long MAX_LOGO_BYTES = 2L * 1024 * 1024;
 
     public WorkspaceService(WorkspaceRepository workspaceRepository,
                             WorkspaceInviteRepository inviteRepository,
                             UserRepository userRepository,
-                            EmailService emailService) {
+                            EmailService emailService,
+                            com.printops.demo.storage.FileStorage fileStorage) {
         this.workspaceRepository = workspaceRepository;
         this.inviteRepository = inviteRepository;
         this.userRepository = userRepository;
         this.emailService = emailService;
+        this.fileStorage = fileStorage;
+    }
+
+    // Logo del taller (PNG o JPG, hasta 2 MB): aparece en el encabezado de los PDF.
+    @Transactional
+    public WorkspaceResponse uploadLogo(String email, org.springframework.web.multipart.MultipartFile file) {
+        Workspace ws = managerWorkspace(email);
+        if (file == null || file.isEmpty()) throw new IllegalArgumentException("Elegí una imagen.");
+        if (file.getSize() > MAX_LOGO_BYTES) throw new IllegalArgumentException("El logo no puede superar los 2 MB.");
+        try {
+            if (!isPngOrJpeg(file.getBytes())) {
+                throw new IllegalArgumentException("El logo tiene que ser un PNG o JPG.");
+            }
+        } catch (java.io.IOException e) {
+            throw new IllegalArgumentException("No se pudo leer la imagen.");
+        }
+        String previous = ws.getLogoUrl();
+        ws.setLogoUrl(fileStorage.storeImage("logos", file));
+        workspaceRepository.save(ws);
+        fileStorage.delete(previous);
+        return toResponse(ws);
+    }
+
+    @Transactional
+    public WorkspaceResponse deleteLogo(String email) {
+        Workspace ws = managerWorkspace(email);
+        fileStorage.delete(ws.getLogoUrl());
+        ws.setLogoUrl(null);
+        workspaceRepository.save(ws);
+        return toResponse(ws);
+    }
+
+    // Por contenido, no por extensión: OpenPDF solo dibuja PNG/JPEG (no WebP ni SVG).
+    static boolean isPngOrJpeg(byte[] b) {
+        boolean png = b.length > 8 && (b[0] & 0xFF) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G';
+        boolean jpeg = b.length > 3 && (b[0] & 0xFF) == 0xFF && (b[1] & 0xFF) == 0xD8 && (b[2] & 0xFF) == 0xFF;
+        return png || jpeg;
+    }
+
+    private Workspace managerWorkspace(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        if (user.getRole() != Role.MANAGER) {
+            throw new IllegalArgumentException("Solo un manager puede editar el taller.");
+        }
+        return resolveWorkspace(email);
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +120,8 @@ public class WorkspaceService {
         ws.setPhone(request.phone());
         ws.setContactEmail(request.contactEmail());
         ws.setAddress(request.address());
-        ws.setLogoUrl(request.logoUrl());
+        // El logo se maneja con su propio endpoint (subida a storage); acá se ignora para no
+        // pisar la clave con la URL firmada que el front recibió al leer el taller.
         if (request.currency() != null && !request.currency().isBlank()) {
             ws.setCurrency(request.currency());
         }
@@ -210,7 +261,7 @@ public class WorkspaceService {
     private WorkspaceResponse toResponse(Workspace ws) {
         return new WorkspaceResponse(
                 ws.getId(), ws.getName(), ws.getPhone(), ws.getContactEmail(),
-                ws.getAddress(), ws.getLogoUrl(), ws.getCurrency(),
+                ws.getAddress(), fileStorage.urlFor(ws.getLogoUrl()), ws.getCurrency(),
                 ws.getDefaultEnergyPriceKwh(), ws.getDefaultOperatorHourlyRate(),
                 ws.getDefaultDesignHourlyRate(), ws.getDefaultMarginPercent(),
                 ws.getQuoteValidityDays()

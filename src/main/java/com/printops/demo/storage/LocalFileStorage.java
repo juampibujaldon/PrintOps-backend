@@ -66,6 +66,17 @@ public class LocalFileStorage implements FileStorage {
         }
     }
 
+    @Override
+    public Optional<byte[]> read(String key) {
+        if (!StorageKeys.isValid(key)) return Optional.empty();
+        try {
+            Path file = resolve(key);
+            return Files.isRegularFile(file) ? Optional.of(Files.readAllBytes(file)) : Optional.empty();
+        } catch (IOException e) {
+            return Optional.empty();
+        }
+    }
+
     // Archivo para una URL firmada valida y vigente; vacio si la firma no coincide o vencio.
     public Optional<Path> open(String key, long exp, String sig) {
         if (!StorageKeys.isValid(key) || sig == null) return Optional.empty();

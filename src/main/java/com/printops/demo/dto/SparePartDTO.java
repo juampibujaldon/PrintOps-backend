@@ -14,5 +14,6 @@ public record SparePartDTO(
         double unitPrice,
         String supplierUrl,
         boolean isLowStock,     // stock <= minStock
-        boolean isOutOfStock    // stock == 0
+        boolean isOutOfStock,   // stock == 0
+        Long supplierId
 ) {}

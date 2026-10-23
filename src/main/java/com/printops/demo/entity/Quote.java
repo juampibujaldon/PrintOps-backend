@@ -129,6 +129,53 @@ public class Quote {
     }
 
     // Getters y Setters
+    // Link público para que el cliente vea y acepte el presupuesto (token aleatorio).
+    @Column(name = "public_token", unique = true)
+    private String publicToken;
+
+    @Column(name = "shared_at")
+    private java.time.Instant sharedAt;
+
+    @Column(name = "client_decision_at")
+    private java.time.Instant clientDecisionAt;
+
+    @Column(name = "client_decision_note", length = 1000)
+    private String clientDecisionNote;
+
+    // Bobina usada para el precio por gramo (opcional); pasa al trabajo de impresión.
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "spool_id")
+    private FilamentSpool spool;
+
+    @OneToMany(mappedBy = "quote", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("position ASC, id ASC")
+    @org.hibernate.annotations.BatchSize(size = 50)
+    private java.util.List<QuoteExtraCost> extraCosts = new java.util.ArrayList<>();
+
+    @Column(name = "extra_costs_total", nullable = false)
+    private Double extraCostsTotal = 0.0;
+
+    // Marca de agua "BORRADOR" en el PDF (solo aplica mientras es borrador).
+    @Column(name = "draft_watermark", nullable = false)
+    private boolean draftWatermark = true;
+
+    public java.util.List<QuoteExtraCost> getExtraCosts() { return extraCosts; }
+    public Double getExtraCostsTotal() { return extraCostsTotal; }
+    public void setExtraCostsTotal(Double extraCostsTotal) { this.extraCostsTotal = extraCostsTotal; }
+    public boolean isDraftWatermark() { return draftWatermark; }
+    public void setDraftWatermark(boolean draftWatermark) { this.draftWatermark = draftWatermark; }
+
+    public String getPublicToken() { return publicToken; }
+    public void setPublicToken(String publicToken) { this.publicToken = publicToken; }
+    public java.time.Instant getSharedAt() { return sharedAt; }
+    public void setSharedAt(java.time.Instant sharedAt) { this.sharedAt = sharedAt; }
+    public java.time.Instant getClientDecisionAt() { return clientDecisionAt; }
+    public void setClientDecisionAt(java.time.Instant clientDecisionAt) { this.clientDecisionAt = clientDecisionAt; }
+    public String getClientDecisionNote() { return clientDecisionNote; }
+    public void setClientDecisionNote(String clientDecisionNote) { this.clientDecisionNote = clientDecisionNote; }
+    public FilamentSpool getSpool() { return spool; }
+    public void setSpool(FilamentSpool spool) { this.spool = spool; }
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getQuoteNumber() { return quoteNumber; }

@@ -48,6 +48,16 @@ public class S3FileStorage implements FileStorage {
     }
 
     @Override
+    public java.util.Optional<byte[]> read(String key) {
+        if (!StorageKeys.isValid(key)) return java.util.Optional.empty();
+        try {
+            return java.util.Optional.of(client.getObjectAsBytes(b -> b.bucket(bucket).key(key)).asByteArray());
+        } catch (software.amazon.awssdk.services.s3.model.S3Exception e) {
+            return java.util.Optional.empty();
+        }
+    }
+
+    @Override
     public void delete(String key) {
         if (!StorageKeys.isValid(key)) return;
         client.deleteObject(b -> b.bucket(bucket).key(key));

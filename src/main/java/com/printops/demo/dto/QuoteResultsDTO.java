@@ -12,5 +12,6 @@ public record QuoteResultsDTO(
         double totalPrice,
         double totalProfit,
         double roi,
-        ComponentWearDTO componentWear
+        ComponentWearDTO componentWear,
+        double extraCostsTotal
 ) {}

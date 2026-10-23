@@ -64,4 +64,15 @@ public interface QuoteRepository extends JpaRepository<Quote, Long> {
 
     @EntityGraph(attributePaths = "printer")
     Optional<Quote> findByIdAndWorkspaceId(Long id, Long workspaceId);
+
+    @EntityGraph(attributePaths = "printer")
+    Optional<Quote> findByPublicToken(String publicToken);
+
+    // Rentabilidad: presupuestos aceptados o cobrados en el período, con su impresora.
+    @EntityGraph(attributePaths = "printer")
+    @Query("SELECT q FROM Quote q WHERE q.workspaceId = :workspaceId AND q.status IN :statuses " +
+            "AND q.createdAt >= :from AND q.createdAt < :to")
+    List<Quote> findWonInPeriod(@Param("workspaceId") Long workspaceId,
+                                @Param("statuses") java.util.Collection<QuoteStatus> statuses,
+                                @Param("from") LocalDateTime from, @Param("to") LocalDateTime to);
 }

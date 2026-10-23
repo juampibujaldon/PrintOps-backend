@@ -91,6 +91,17 @@ public class QuoteController {
         return ResponseEntity.ok(Map.of("message", "Presupuesto eliminado"));
     }
 
+    // Link público para mandarle al cliente. Compartir un borrador lo pasa a enviado.
+    @PostMapping("/{id}/share")
+    public ResponseEntity<QuoteResponseDTO> share(@PathVariable Long id) {
+        return ResponseEntity.ok(quoteService.share(id));
+    }
+
+    @DeleteMapping("/{id}/share")
+    public ResponseEntity<QuoteResponseDTO> unshare(@PathVariable Long id) {
+        return ResponseEntity.ok(quoteService.unshare(id));
+    }
+
     @GetMapping("/{id}/pdf")
     public ResponseEntity<byte[]> getPdf(@PathVariable Long id) {
         QuoteResponseDTO quote = quoteService.get(id);

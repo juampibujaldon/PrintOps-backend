@@ -21,6 +21,7 @@ class DashboardCacheIT extends IntegrationTestBase {
     @Autowired MaintenanceRuleService ruleService;
     @Autowired QuoteService quoteService;
     @Autowired PrinterService printerService;
+    @Autowired PrintJobService printJobService;
 
     private static final MetricsFilters PERIOD = new MetricsFilters(LocalDate.now().minusDays(3), LocalDate.now().plusDays(1));
 
@@ -82,10 +83,17 @@ class DashboardCacheIT extends IntegrationTestBase {
         loginAs(w.tech);
         // 10.000 h de impresion superan el 100% de vida util de todos los componentes.
         Long quoteId = quoteService.create(new CreateQuoteRequest(100.0, 0.05, FilamentType.PLA, 200.0, 0.1, 10_000.0,
-                0.0, 0.0, 10.0, 30.0, 0.0, 1, printer.getId(), "Cliente", "Trabajo"), w.tech.getEmail()).id();
+                0.0, 0.0, 10.0, 30.0, 0.0, 1, printer.getId(), "Cliente", "Trabajo", null, null, null), w.tech.getEmail()).id();
         assertThat(dashboard().totalOrders()).isZero();
 
+        // El uso real (y el desgaste) se registra al terminar el trabajo de impresión que
+        // genera el presupuesto aceptado, no al enviarlo.
         quoteService.changeStatus(quoteId, QuoteStatus.SENT);
+        assertThat(dashboard().totalOrders()).isZero();
+        quoteService.changeStatus(quoteId, QuoteStatus.ACCEPTED);
+        PrintJobDTO job = printJobService.list(true, printer.getId()).getFirst();
+        printJobService.start(job.id());
+        printJobService.finish(job.id(), null, w.tech.getEmail());
 
         assertThat(dashboard().totalOrders()).isGreaterThan(0);
     }
