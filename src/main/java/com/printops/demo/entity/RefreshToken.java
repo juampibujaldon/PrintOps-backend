@@ -34,6 +34,10 @@ public class RefreshToken {
     @Column(nullable = false)
     private boolean revoked;
 
+    // "Recordarme": la cookie sobrevive al cierre del navegador; si no, es de sesión.
+    @Column(name = "remember_me", nullable = false)
+    private boolean rememberMe;
+
     @PrePersist
     protected void onCreate() {
         createdAt = Instant.now();
@@ -58,6 +62,9 @@ public class RefreshToken {
 
     public Instant getExpiresAt() { return expiresAt; }
     public void setExpiresAt(Instant expiresAt) { this.expiresAt = expiresAt; }
+
+    public boolean isRememberMe() { return rememberMe; }
+    public void setRememberMe(boolean rememberMe) { this.rememberMe = rememberMe; }
 
     public boolean isRevoked() { return revoked; }
     public void setRevoked(boolean revoked) { this.revoked = revoked; }

@@ -11,7 +11,9 @@ import com.printops.demo.exception.EmailAlreadyRegisteredException;
 import com.printops.demo.exception.EmailNotVerifiedException;
 import com.printops.demo.exception.InvalidInviteException;
 import com.printops.demo.repository.*;
+import com.printops.demo.security.ratelimit.RateLimiter;
 import org.springframework.beans.factory.annotation.Value;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.authentication.*;
 import org.springframework.security.core.AuthenticationException;
@@ -23,9 +25,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class AuthService {
@@ -58,11 +60,13 @@ public class AuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    // Rate limiting: IP -> intentos fallidos
-    private final Map<String, Integer> failedAttempts = new ConcurrentHashMap<>();
-    private final Map<String, Instant> lockedUntil = new ConcurrentHashMap<>();
+    // Intentos fallidos de login, compartidos entre réplicas (RateLimiter sobre Redis):
+    // 5 por IP o 10 por cuenta en 15 minutos bloquean hasta que vence la ventana. El límite
+    // por cuenta frena la fuerza bruta distribuida desde muchas IPs contra un mismo email.
+    private final RateLimiter rateLimiter;
     private static final int MAX_INTENTOS = 5;
-    private static final long BLOQUEO_MS = 15 * 60 * 1000L;
+    private static final int MAX_INTENTOS_EMAIL = 10;
+    private static final Duration VENTANA_BLOQUEO = Duration.ofMinutes(15);
     private static final long VERIFICATION_TOKEN_TTL_SECONDS = 24 * 3600L;
     private static final long INVITE_TOKEN_TTL_SECONDS = 7 * 24 * 3600L;
     private static final long RESET_TOKEN_TTL_SECONDS = 3600L;
@@ -73,8 +77,9 @@ public class AuthService {
                        TokenBlacklistRepository blacklistRepository, LoginAuditRepository auditRepository,
                        PasswordEncoder passwordEncoder, EmailService emailService,
                        WorkspaceRepository workspaceRepository, WorkspaceInviteRepository inviteRepository,
-                       GoogleTokenVerifier googleVerifier) {
+                       GoogleTokenVerifier googleVerifier, RateLimiter rateLimiter) {
         this.googleVerifier = googleVerifier;
+        this.rateLimiter = rateLimiter;
         this.authManager = authManager;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
@@ -90,9 +95,10 @@ public class AuthService {
     @Transactional
     public AuthResponse login(String email, String password, String deviceId,
                               boolean rememberMe, String ip, String userAgent) {
-        // Verificar si la IP está bloqueada
-        if (isIpBloqueada(ip)) {
-            throw new LockedException("IP bloqueada por múltiples intentos fallidos. Espere 15 minutos.");
+        // Verificar si la IP o la cuenta están bloqueadas
+        rejectIfLocked(ip);
+        if (!rateLimiter.peek(emailKey(email), MAX_INTENTOS_EMAIL).allowed()) {
+            throw new LockedException("Cuenta bloqueada temporalmente por múltiples intentos fallidos. Espere 15 minutos.");
         }
 
         try {
@@ -100,6 +106,7 @@ public class AuthService {
         } catch (AuthenticationException e) {
             registrarAudit(null, email, ip, userAgent, LoginAudit.Action.FAILED);
             incrementarIntentos(ip);
+            rateLimiter.hit(emailKey(email), MAX_INTENTOS_EMAIL, VENTANA_BLOQUEO);
             throw new BadCredentialsException("Credenciales inválidas");
         }
 
@@ -109,8 +116,8 @@ public class AuthService {
         // Removida la verificación por mail.
 
         // Login exitoso: limpiar intentos fallidos
-        failedAttempts.remove(ip);
-        lockedUntil.remove(ip);
+        rateLimiter.reset(ipKey(ip));
+        rateLimiter.reset(emailKey(email));
 
         String accessToken = jwtService.generateAccessToken(email, user.getRole().name(), user.getWorkspaceId());
 
@@ -120,7 +127,7 @@ public class AuthService {
         RefreshToken refreshToken = crearRefreshToken(user, deviceId, rememberMe);
         registrarAudit(user.getId(), email, ip, userAgent, LoginAudit.Action.LOGIN);
 
-        return buildAuthResponse(accessToken, refreshToken.getToken(), user);
+        return buildAuthResponse(accessToken, refreshToken, user);
     }
 
     @Transactional
@@ -260,13 +267,12 @@ public class AuthService {
     // Cierre común de un login exitoso (igual que el de contraseña).
     private AuthResponse startSession(User user, String deviceId, boolean rememberMe, String ip, String userAgent) {
         requireEnabled(user);
-        failedAttempts.remove(ip);
-        lockedUntil.remove(ip);
+        rateLimiter.reset(ipKey(ip));
         String accessToken = jwtService.generateAccessToken(user.getEmail(), user.getRole().name(), user.getWorkspaceId());
         refreshTokenRepository.revokeByUserAndDeviceId(user, deviceId);
         RefreshToken refreshToken = crearRefreshToken(user, deviceId, rememberMe);
         registrarAudit(user.getId(), user.getEmail(), ip, userAgent, LoginAudit.Action.LOGIN);
-        return buildAuthResponse(accessToken, refreshToken.getToken(), user);
+        return buildAuthResponse(accessToken, refreshToken, user);
     }
 
     private void rejectIfLocked(String ip) {
@@ -337,7 +343,7 @@ public class AuthService {
         User user = refreshToken.getUser();
         String newAccessToken = jwtService.generateAccessToken(user.getEmail(), user.getRole().name(), user.getWorkspaceId());
 
-        return buildAuthResponse(newAccessToken, rawRefreshToken, user);
+        return buildAuthResponse(newAccessToken, refreshToken, user);
     }
 
     @Transactional
@@ -415,6 +421,7 @@ public class AuthService {
 
     // Limpieza automática cada hora
     @Scheduled(fixedRate = 3_600_000)
+    @SchedulerLock(name = "auth-token-cleanup", lockAtMostFor = "PT10M", lockAtLeastFor = "PT1M")
     @Transactional
     public void limpiarTokensExpirados() {
         Instant ahora = Instant.now();
@@ -430,6 +437,7 @@ public class AuthService {
         rt.setDeviceId(deviceId);
         rt.setExpiresAt(Instant.now().plusMillis(expMs));
         rt.setRevoked(false);
+        rt.setRememberMe(rememberMe);
         return refreshTokenRepository.save(rt);
     }
 
@@ -457,29 +465,29 @@ public class AuthService {
     }
 
     private boolean isIpBloqueada(String ip) {
-        Instant bloqueo = lockedUntil.get(ip);
-        if (bloqueo == null) return false;
-        if (Instant.now().isAfter(bloqueo)) {
-            lockedUntil.remove(ip);
-            failedAttempts.remove(ip);
-            return false;
-        }
-        return true;
+        return !rateLimiter.peek(ipKey(ip), MAX_INTENTOS).allowed();
     }
 
     private void incrementarIntentos(String ip) {
-        int intentos = failedAttempts.merge(ip, 1, Integer::sum);
-        if (intentos >= MAX_INTENTOS) {
-            lockedUntil.put(ip, Instant.now().plusMillis(BLOQUEO_MS));
-        }
+        rateLimiter.hit(ipKey(ip), MAX_INTENTOS, VENTANA_BLOQUEO);
     }
 
-    private AuthResponse buildAuthResponse(String accessToken, String refreshToken, User user) {
+    private static String ipKey(String ip) {
+        return "login-fail:ip:" + ip;
+    }
+
+    private static String emailKey(String email) {
+        return "login-fail:email:" + (email == null ? "" : email.trim().toLowerCase(java.util.Locale.ROOT));
+    }
+
+    private AuthResponse buildAuthResponse(String accessToken, RefreshToken refreshToken, User user) {
         return new AuthResponse(
                 accessToken,
-                refreshToken,
+                refreshToken.getToken(),
                 (int) (accessExpiration / 1000),
-                new AuthResponse.UserInfo(user.getId(), user.getEmail(), user.getRole().name(), user.getWorkspaceId())
+                new AuthResponse.UserInfo(user.getId(), user.getEmail(), user.getRole().name(), user.getWorkspaceId()),
+                refreshToken.getExpiresAt(),
+                refreshToken.isRememberMe()
         );
     }
 

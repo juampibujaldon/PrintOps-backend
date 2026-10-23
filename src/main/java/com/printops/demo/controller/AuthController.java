@@ -5,7 +5,9 @@ import com.printops.demo.dto.*;
 import com.printops.demo.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,9 +21,18 @@ import java.util.Map;
 public class AuthController {
 
     private final AuthService authService;
+    private final RefreshCookies refreshCookies;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, RefreshCookies refreshCookies) {
         this.authService = authService;
+        this.refreshCookies = refreshCookies;
+    }
+
+    // Respuesta de login/refresh: el refresh token va en la cookie httpOnly, no en el JSON.
+    private ResponseEntity<AuthResponse> withSession(AuthResponse auth) {
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookies.issue(auth))
+                .body(auth.withoutRefreshToken());
     }
 
     @PostMapping("/login")
@@ -32,7 +43,7 @@ public class AuthController {
         AuthResponse response = authService.login(
                 request.email(), request.password(), request.deviceId(),
                 request.rememberMe(), ip, userAgent);
-        return ResponseEntity.ok(response);
+        return withSession(response);
     }
 
     // 200 AuthResponse (existente/vinculada) o 202 con el paso de onboarding (sin cuenta).
@@ -43,7 +54,7 @@ public class AuthController {
                 request.idToken(), request.deviceId(), request.rememberMe(),
                 obtenerIp(httpRequest), httpRequest.getHeader("User-Agent"));
         if (result.auth() != null) {
-            return ResponseEntity.ok(result.auth());
+            return withSession(result.auth());
         }
         return ResponseEntity.accepted().body(result.onboarding());
     }
@@ -51,7 +62,7 @@ public class AuthController {
     @PostMapping("/google/complete")
     public ResponseEntity<AuthResponse> googleComplete(@Valid @RequestBody GoogleCompleteRequest request,
                                                        HttpServletRequest httpRequest) {
-        return ResponseEntity.ok(authService.completeGoogleSignup(
+        return withSession(authService.completeGoogleSignup(
                 request.onboardingToken(), request.deviceId(), request.rememberMe(),
                 request.inviteToken(), request.workspaceName(),
                 obtenerIp(httpRequest), httpRequest.getHeader("User-Agent")));
@@ -89,8 +100,16 @@ public class AuthController {
 
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
-        return ResponseEntity.ok(authService.refresh(request.refreshToken(), request.deviceId()));
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request,
+                                                HttpServletRequest httpRequest) {
+        // La cookie es la vía normal (navegador). El body queda para clientes sin cookies
+        // (scripts, e2e).
+        String token = refreshCookies.read(httpRequest);
+        if (token == null) token = request.refreshToken();
+        if (token == null || token.isBlank()) {
+            throw new BadCredentialsException("Refresh token ausente");
+        }
+        return withSession(authService.refresh(token, request.deviceId()));
     }
 
     @PostMapping("/logout")
@@ -103,7 +122,9 @@ public class AuthController {
         String ip = obtenerIp(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
         authService.logout(token, deviceId, userDetails.getUsername(), ip, userAgent, keepSession);
-        return ResponseEntity.ok(Map.of("message", "Sesión cerrada correctamente"));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookies.clear())
+                .body(Map.of("message", "Sesión cerrada correctamente"));
     }
 
     @PostMapping("/forgot-password")
@@ -143,11 +164,10 @@ public class AuthController {
         return null;
     }
 
+    // IP del cliente resuelta por Tomcat (server.forward-headers-strategy=native, que solo
+    // confía en X-Forwarded-For de proxies internos). Antes se tomaba el primer valor del
+    // header, que lo elige el cliente: el bloqueo por IP se evitaba mandando otro valor.
     private String obtenerIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
         return request.getRemoteAddr();
     }
 }

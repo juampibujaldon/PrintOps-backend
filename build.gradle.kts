@@ -37,6 +37,19 @@ dependencies {
 	implementation("com.google.api-client:google-api-client:2.9.1")
 	// Notificaciones push con Firebase Cloud Messaging (US-05).
 	implementation("org.springframework.boot:spring-boot-starter-websocket")
+	// Migraciones versionadas del esquema (reemplaza ddl-auto=update).
+	implementation("org.springframework.boot:spring-boot-starter-flyway")
+	implementation("org.flywaydb:flyway-database-postgresql")
+	// Health checks para Railway (/actuator/health).
+	implementation("org.springframework.boot:spring-boot-starter-actuator")
+	// Un solo nodo ejecuta cada tarea programada aunque haya varias réplicas.
+	implementation("net.javacrumbs.shedlock:shedlock-spring:7.10.1")
+	implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.10.1")
+	// Documentación OpenAPI (/v3/api-docs, /swagger-ui.html).
+	implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3")
+	// Storage de archivos compatible S3 (Cloudflare R2, AWS S3, MinIO).
+	implementation(platform("software.amazon.awssdk:bom:2.55.0"))
+	implementation("software.amazon.awssdk:s3")
 	testImplementation("org.springframework.boot:spring-boot-starter-test")
 	testImplementation("org.springframework.security:spring-security-test")
 	testImplementation("org.springframework.boot:spring-boot-testcontainers")

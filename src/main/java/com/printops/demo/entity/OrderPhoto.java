@@ -18,8 +18,9 @@ public class OrderPhoto {
     @JoinColumn(name = "order_id")
     private MaintenanceOrder order;
 
-    @Column(nullable = false)
-    private String url;
+    // Clave en el storage (p. ej. "orders/<uuid>.jpg"); la URL firmada se arma al responder.
+    @Column(name = "storage_key", nullable = false)
+    private String storageKey;
 
     // Etiqueta opcional (ej. "antes", "después").
     @Column
@@ -40,8 +41,8 @@ public class OrderPhoto {
     public void setId(Long id) { this.id = id; }
     public MaintenanceOrder getOrder() { return order; }
     public void setOrder(MaintenanceOrder order) { this.order = order; }
-    public String getUrl() { return url; }
-    public void setUrl(String url) { this.url = url; }
+    public String getStorageKey() { return storageKey; }
+    public void setStorageKey(String storageKey) { this.storageKey = storageKey; }
     public String getLabel() { return label; }
     public void setLabel(String label) { this.label = label; }
     public Instant getCreatedAt() { return createdAt; }

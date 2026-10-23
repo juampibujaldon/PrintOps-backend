@@ -1,6 +1,7 @@
 // src/main/java/com/printops/demo/service/NotificationService.java
 package com.printops.demo.service;
 
+import com.printops.demo.dto.PageResponse;
 import com.printops.demo.dto.NotificationResponse;
 import com.printops.demo.entity.Notification;
 import com.printops.demo.entity.User;
@@ -42,6 +43,21 @@ public class NotificationService {
         return notificationRepository.findByRecipientUserIdOrderByCreatedAtDesc(user.getId()).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<NotificationResponse> pageForEmail(String email, Integer page, Integer size) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        return PageResponse.of(notificationRepository.findByRecipientUserIdOrderByCreatedAtDescIdDesc(
+                user.getId(), PageResponse.request(page, size)), this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public long unreadCount(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new NoSuchElementException("Usuario no encontrado"));
+        return notificationRepository.countByRecipientUserIdAndReadFalse(user.getId());
     }
 
     @Transactional

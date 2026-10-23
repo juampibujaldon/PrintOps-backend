@@ -27,6 +27,7 @@ class HttpOptimizationsIT extends IntegrationTestBase {
     @LocalServerPort int port;
     @Autowired JwtService jwtService;
     @Autowired Environment environment;
+    @Autowired com.printops.demo.storage.FileStorage fileStorage;
 
     private final HttpClient http = HttpClient.newHttpClient();
     private Path uploaded;
@@ -72,19 +73,32 @@ class HttpOptimizationsIT extends IntegrationTestBase {
     }
 
     @Test
-    void uploadsAreServedWithLongPublicCache() throws Exception {
-        String name = UUID.randomUUID() + ".png";
-        Path dir = Path.of("uploads", "orders");
+    void storedFilesNeedAValidUnexpiredSignature() throws Exception {
+        String key = "orders/" + UUID.randomUUID() + ".png";
+        Path dir = Path.of(environment.getProperty("app.storage.local-dir", "uploads"), "orders");
         Files.createDirectories(dir);
-        uploaded = dir.resolve(name);
+        uploaded = dir.resolve(key.substring("orders/".length()));
         Files.write(uploaded, new byte[]{1, 2, 3});
 
-        HttpRequest req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/uploads/orders/" + name)).GET().build();
-        HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
+        String url = fileStorage.urlFor(key);
+        assertThat(url).startsWith("/api/files/" + key + "?exp=");
+        HttpResponse<byte[]> ok = get(url);
+        assertThat(ok.statusCode()).isEqualTo(200);
+        assertThat(ok.body()).containsExactly(1, 2, 3);
+        assertThat(ok.headers().firstValue("Cache-Control").orElse("")).contains("private");
 
-        assertThat(res.statusCode()).isEqualTo(200);
-        String cc = res.headers().firstValue("Cache-Control").orElse("");
-        assertThat(cc).contains("max-age=31536000").contains("public");
+        // Firma alterada, vencida o clave fuera del storage: 404, sin revelar nada.
+        assertThat(get(url.replaceAll("sig=.", "sig=X")).statusCode()).isEqualTo(404);
+        String expired = url.replaceAll("exp=\\d+", "exp=1");
+        assertThat(get(expired).statusCode()).isEqualTo(404);
+        assertThat(get("/api/files/../../build.gradle.kts?exp=99999999999&sig=x").statusCode()).isIn(400, 401, 404);
+        // El viejo /uploads público ya no existe.
+        assertThat(get("/uploads/" + key).statusCode()).isIn(401, 403, 404);
+    }
+
+    private HttpResponse<byte[]> get(String path) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).GET().build();
+        return http.send(req, HttpResponse.BodyHandlers.ofByteArray());
     }
 
     // Recorre los GET principales con open-in-view apagado: ninguno debe tocar

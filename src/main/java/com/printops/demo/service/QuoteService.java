@@ -96,6 +96,15 @@ public class QuoteService {
     }
 
     @Transactional(readOnly = true)
+    public PageResponse<QuoteResponseDTO> page(QuoteStatus status, String clientName, LocalDate from, LocalDate to,
+                                               Long printerId, Integer page, Integer size) {
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : LocalDateTime.of(1970, 1, 1, 0, 0);
+        LocalDateTime toDt = to != null ? to.atTime(LocalTime.MAX) : LocalDateTime.of(9999, 12, 31, 23, 59, 59);
+        return PageResponse.of(quoteRepository.searchPage(wsId(), status, blankToNull(clientName), printerId,
+                fromDt, toDt, PageResponse.request(page, size)), this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
     public QuoteResponseDTO get(Long id) {
         return toResponse(find(id));
     }
@@ -156,21 +165,11 @@ public class QuoteService {
     }
 
     // ── PDF ─────────────────────────────────────────────────────────────────
-    @Transactional
-    public byte[] generateAndStorePdf(Long id) {
-        Quote q = find(id);
-        byte[] pdf = quotePdfService.generatePdf(q);
-        String fileName = "PRE-" + q.getId() + ".pdf";
-        try {
-            Path dir = Paths.get("uploads/quotes");
-            Files.createDirectories(dir);
-            Files.write(dir.resolve(fileName), pdf);
-            q.setPdfPath("uploads/quotes/" + fileName);
-            quoteRepository.save(q);
-        } catch (IOException e) {
-            throw new RuntimeException("No se pudo guardar el PDF del presupuesto.", e);
-        }
-        return pdf;
+    // Se genera en cada pedido (es barato y siempre refleja el presupuesto actual). Antes se
+    // guardaba una copia en uploads/, que en Railway se perdía en cada deploy.
+    @Transactional(readOnly = true)
+    public byte[] generatePdf(Long id) {
+        return quotePdfService.generatePdf(find(id));
     }
 
     // ── Motor de cálculo ────────────────────────────────────────────────────
@@ -234,6 +233,11 @@ public class QuoteService {
 
         double prev = printer.getTotalPrintingHours() != null ? printer.getTotalPrintingHours() : 0.0;
         printer.setTotalPrintingHours(prev + delta);
+        // Sin esto las reglas FILAMENT_GRAMS nunca se disparaban: el contador quedaba en 0.
+        double grams = (q.getFilamentGrams() != null ? q.getFilamentGrams() : 0.0)
+                * (q.getUnits() != null ? q.getUnits() : 1);
+        double prevGrams = printer.getTotalFilamentGrams() != null ? printer.getTotalFilamentGrams() : 0.0;
+        printer.setTotalFilamentGrams(prevGrams + grams);
         printerRepository.save(printer);
 
         handleWearAlerts(q, printer, wear);
@@ -370,15 +374,7 @@ public class QuoteService {
         if (q.getPrinter() != null) {
             printerName = q.getPrinter().getName() != null ? q.getPrinter().getName() : q.getPrinter().getModel();
         }
-        String pdfUrl = null;
-        if (q.getPdfPath() != null) {
-            try {
-                pdfUrl = ServletUriComponentsBuilder.fromCurrentContextPath()
-                        .path("/api/quotes/").path(String.valueOf(q.getId())).path("/pdf").toUriString();
-            } catch (Exception ignored) {
-                // Fuera de contexto de request (p. ej. tests): pdfUrl queda null.
-            }
-        }
+        String pdfUrl = "/api/quotes/" + q.getId() + "/pdf";
         return new QuoteResponseDTO(
                 q.getId(),
                 q.getQuoteNumber(),

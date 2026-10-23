@@ -15,3 +15,9 @@ jwt:
 resend:
   # Sin RESEND_API_KEY, el contenido de los emails (códigos) se escribe en el log.
   log-when-disabled: ${EMAIL_LOG_WHEN_DISABLED:true}
+
+app:
+  auth:
+    refresh-cookie:
+      # En local el front corre por http://localhost: una cookie Secure no se guardaría.
+      secure: ${AUTH_COOKIE_SECURE:false}

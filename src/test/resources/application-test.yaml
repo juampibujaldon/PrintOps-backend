@@ -9,9 +9,13 @@ spring:
     url: jdbc:postgresql://invalid.invalid:1/printops_test_placeholder
     username: test
     password: test
+  # El esquema de los tests sale de las mismas migraciones de Flyway que producción
+  # (TestFlywayConfig limpia la base antes de migrar).
+  flyway:
+    clean-disabled: false
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: validate
     properties:
       hibernate:
         generate_statistics: true
@@ -23,3 +27,12 @@ jwt:
 resend:
   api-key: ""
   log-when-disabled: true
+
+app:
+  auth:
+    refresh-cookie:
+      secure: false
+  rate-limit:
+    enabled: false
+  storage:
+    local-dir: build/test-uploads

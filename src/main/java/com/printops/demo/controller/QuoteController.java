@@ -44,14 +44,20 @@ public class QuoteController {
         return ResponseEntity.ok(quoteService.create(request, userDetails.getUsername()));
     }
 
+    // Con `page` responde una página (PageResponse); sin `page`, la lista completa.
     @GetMapping
-    public ResponseEntity<List<QuoteResponseDTO>> list(
+    public ResponseEntity<?> list(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String clientName,
             @RequestParam(required = false) LocalDate from,
             @RequestParam(required = false) LocalDate to,
-            @RequestParam(required = false) Long printerId) {
+            @RequestParam(required = false) Long printerId,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
         QuoteStatus st = parseStatus(status);
+        if (page != null) {
+            return ResponseEntity.ok(quoteService.page(st, clientName, from, to, printerId, page, size));
+        }
         return ResponseEntity.ok(quoteService.list(st, clientName, from, to, printerId));
     }
 
@@ -88,7 +94,7 @@ public class QuoteController {
     @GetMapping("/{id}/pdf")
     public ResponseEntity<byte[]> getPdf(@PathVariable Long id) {
         QuoteResponseDTO quote = quoteService.get(id);
-        byte[] pdf = quoteService.generateAndStorePdf(id);
+        byte[] pdf = quoteService.generatePdf(id);
         String filename = "presupuesto-" + quote.quoteNumber() + ".pdf";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")

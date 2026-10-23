@@ -8,6 +8,7 @@ import com.printops.demo.entity.PrinterStatus;
 import com.printops.demo.entity.User;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.security.TenantContext;
+import com.printops.demo.storage.FileStorage;
 import com.printops.demo.util.UploadFiles;
 import com.printops.demo.repository.UserRepository;
 import org.slf4j.Logger;
@@ -34,19 +35,14 @@ public class PrinterService {
     private final PrinterRepository printerRepository;
     private final UserRepository userRepository;
     private final DashboardCache dashboardCache;
-    private final String uploadDir = "uploads/printers/";
+    private final FileStorage fileStorage;
 
     public PrinterService(PrinterRepository printerRepository, UserRepository userRepository,
-                          DashboardCache dashboardCache) {
+                          DashboardCache dashboardCache, FileStorage fileStorage) {
         this.printerRepository = printerRepository;
         this.userRepository = userRepository;
         this.dashboardCache = dashboardCache;
-        // Ensure upload directory exists
-        try {
-            Files.createDirectories(Paths.get(uploadDir));
-        } catch (IOException e) {
-            throw new RuntimeException("Could not create upload directory!");
-        }
+        this.fileStorage = fileStorage;
     }
 
     // FIX 3: workspace del usuario autenticado, usado para filtrar todo.
@@ -82,19 +78,7 @@ public class PrinterService {
         printer.setQrCodeData("printops://printer/" + dto.serialNumber());
 
         if (photo != null && !photo.isEmpty()) {
-            String fileName = UploadFiles.safeImageFileName(photo);
-            try {
-                Path targetLocation = Paths.get(uploadDir).resolve(fileName);
-                Files.copy(photo.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-                String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
-                        .path("/uploads/printers/")
-                        .path(fileName)
-                        .toUriString();
-                printer.setPhotoUrl(fileDownloadUri);
-            } catch (IOException ex) {
-                log.error("Error guardando la foto", ex);
-                throw new RuntimeException("No se pudo guardar la foto.", ex);
-            }
+            printer.setPhotoKey(fileStorage.storeImage("printers", photo));
         }
 
         Printer saved = printerRepository.save(printer);
@@ -159,7 +143,7 @@ public class PrinterService {
                 p.getStatus() != null ? p.getStatus().name() : null,
                 p.getLocation(),
                 p.getNextMaintenanceDate(),
-                p.getPhotoUrl(),
+                fileStorage.urlFor(p.getPhotoKey()),
                 p.getQrCodeData(),
                 p.getTotalPrintingHours(),
                 p.getWatts()

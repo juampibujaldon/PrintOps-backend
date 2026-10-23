@@ -107,8 +107,6 @@ public class Quote {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "pdf_path")
-    private String pdfPath;
 
     @PrePersist
     protected void onCreate() {
@@ -193,6 +191,4 @@ public class Quote {
     public void setStatus(QuoteStatus status) { this.status = status; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public String getPdfPath() { return pdfPath; }
-    public void setPdfPath(String pdfPath) { this.pdfPath = pdfPath; }
 }

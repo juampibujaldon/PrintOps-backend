@@ -150,7 +150,14 @@ class GoogleAuthIT extends IntegrationTestBase {
 
         assertThat(r.statusCode()).isEqualTo(200);
         assertThat(field(r.body(), "accessToken")).isNotBlank();
-        assertThat(field(r.body(), "refreshToken")).isNotBlank();
+        // El refresh token viaja solo en la cookie httpOnly, nunca en el JSON.
+        assertThat(r.body()).doesNotContain("refreshToken");
+        String setCookie = r.headers().firstValue("Set-Cookie").orElseThrow();
+        assertThat(setCookie).startsWith("printops_rt=").contains("HttpOnly").contains("SameSite=Strict")
+                .contains("Path=/api/auth");
+        // rememberMe=false: cookie de sesión (sin Max-Age).
+        assertThat(setCookie).doesNotContain("Max-Age");
+        String cookie = setCookie.substring(0, setCookie.indexOf(';'));
         assertThat(r.body()).contains("\"expiresIn\"").contains("\"workspaceId\":777001").contains("\"role\":\"MANAGER\"");
         User reloaded = userRepository.findByEmail(u.getEmail()).orElseThrow();
         assertThat(reloaded.getGoogleSubject()).isEqualTo("sub-" + u.getEmail());
@@ -160,9 +167,16 @@ class GoogleAuthIT extends IntegrationTestBase {
                 "{\"refreshToken\":\"" + old.getToken() + "\",\"deviceId\":\"other-device\"}", ip());
         assertThat(refresh.statusCode()).isEqualTo(401);
         // La sesion nueva si funciona.
-        HttpResponse<String> fresh = post("/api/auth/refresh",
-                "{\"refreshToken\":\"" + field(r.body(), "refreshToken") + "\",\"deviceId\":\"dev-1\"}", ip());
+        HttpRequest withCookie = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/refresh"))
+                .header("Content-Type", "application/json")
+                .header("X-Forwarded-For", ip())
+                .header("Cookie", cookie)
+                .POST(HttpRequest.BodyPublishers.ofString("{\"deviceId\":\"dev-1\"}")).build();
+        HttpResponse<String> fresh = http.send(withCookie, HttpResponse.BodyHandlers.ofString());
         assertThat(fresh.statusCode()).isEqualTo(200);
+        assertThat(field(fresh.body(), "accessToken")).isNotBlank();
+        // Sin cookie ni token en el body: 401.
+        assertThat(post("/api/auth/refresh", "{\"deviceId\":\"dev-1\"}", ip()).statusCode()).isEqualTo(401);
     }
 
     @Test

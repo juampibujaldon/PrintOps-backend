@@ -6,11 +6,14 @@ import com.printops.demo.repository.SparePartRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 // Semilla de repuestos de ejemplo para el inventario (US-10).
 // Solo inserta si el catálogo está vacío, para no duplicar en cada arranque.
+// Solo en dev: en producción metía repuestos falsos en el workspace 1 (el primer taller real).
+@Profile("dev")
 @Component
 public class DataSeeder implements CommandLineRunner {
 

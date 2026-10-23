@@ -34,6 +34,34 @@ public interface QuoteRepository extends JpaRepository<Quote, Long> {
                        @Param("from") LocalDateTime from,
                        @Param("to") LocalDateTime to);
 
+    // Misma búsqueda paginada en SQL (fetch solo de la impresora, to-one).
+    @Query(value = """
+            SELECT q FROM Quote q LEFT JOIN FETCH q.printer
+            WHERE q.workspaceId = :workspaceId
+              AND (:status IS NULL OR q.status = :status)
+              AND (CAST(:clientName AS string) IS NULL OR LOWER(q.clientName) LIKE LOWER(CONCAT('%', CAST(:clientName AS string), '%')))
+              AND (:printerId IS NULL OR q.printer.id = :printerId)
+              AND q.createdAt >= :from
+              AND q.createdAt <= :to
+            ORDER BY q.createdAt DESC
+            """,
+            countQuery = """
+            SELECT COUNT(q) FROM Quote q
+            WHERE q.workspaceId = :workspaceId
+              AND (:status IS NULL OR q.status = :status)
+              AND (CAST(:clientName AS string) IS NULL OR LOWER(q.clientName) LIKE LOWER(CONCAT('%', CAST(:clientName AS string), '%')))
+              AND (:printerId IS NULL OR q.printer.id = :printerId)
+              AND q.createdAt >= :from
+              AND q.createdAt <= :to
+            """)
+    org.springframework.data.domain.Page<Quote> searchPage(@Param("workspaceId") Long workspaceId,
+                                                          @Param("status") QuoteStatus status,
+                                                          @Param("clientName") String clientName,
+                                                          @Param("printerId") Long printerId,
+                                                          @Param("from") LocalDateTime from,
+                                                          @Param("to") LocalDateTime to,
+                                                          org.springframework.data.domain.Pageable pageable);
+
     @EntityGraph(attributePaths = "printer")
     Optional<Quote> findByIdAndWorkspaceId(Long id, Long workspaceId);
 }

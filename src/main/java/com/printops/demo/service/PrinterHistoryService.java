@@ -6,6 +6,7 @@ import com.printops.demo.entity.*;
 import com.printops.demo.repository.MaintenanceOrderRepository;
 import com.printops.demo.repository.PrinterRepository;
 import com.printops.demo.security.TenantContext;
+import com.printops.demo.storage.FileStorage;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -32,11 +33,14 @@ public class PrinterHistoryService {
 
     private final MaintenanceOrderRepository orderRepository;
     private final PrinterRepository printerRepository;
+    private final FileStorage fileStorage;
 
     public PrinterHistoryService(MaintenanceOrderRepository orderRepository,
-                                 PrinterRepository printerRepository) {
+                                 PrinterRepository printerRepository,
+                                 FileStorage fileStorage) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
+        this.fileStorage = fileStorage;
     }
 
     private Long wsId() {
@@ -152,7 +156,7 @@ public class PrinterHistoryService {
 
         double partsCost = parts.stream().mapToDouble(OrderHistoryItemDTO.PartUsedDTO::cost).sum();
 
-        List<String> photos = o.getPhotos().stream().map(OrderPhoto::getUrl).toList();
+        List<String> photos = o.getPhotos().stream().map(ph -> fileStorage.urlFor(ph.getStorageKey())).toList();
 
         String technician = o.getAssignedTo() != null ? o.getAssignedTo().getEmail() : null;
 

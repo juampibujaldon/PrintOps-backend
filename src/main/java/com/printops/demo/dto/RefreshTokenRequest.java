@@ -3,7 +3,8 @@ package com.printops.demo.dto;
 
 import jakarta.validation.constraints.NotBlank;
 
+// refreshToken es opcional: los navegadores lo mandan en la cookie httpOnly.
 public record RefreshTokenRequest(
-    @NotBlank String refreshToken,
+    String refreshToken,
     @NotBlank String deviceId
 ) {}

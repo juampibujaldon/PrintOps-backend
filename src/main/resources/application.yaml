@@ -52,7 +52,9 @@ spring:
     # de ejecutar consultas ocultas desde el controller / serializador.
     open-in-view: false
     hibernate:
-      ddl-auto: update
+      # El esquema lo manejan las migraciones de Flyway (db/migration). Hibernate solo
+      # valida que las entidades coincidan con las tablas y no arranca si no.
+      ddl-auto: validate
     show-sql: false
     properties:
       hibernate:
@@ -60,6 +62,12 @@ spring:
         format_sql: true
         # FIX 10: evita N+1 cargando colecciones lazy (parts/photos) en lotes.
         default_batch_fetch_size: 50
+
+  flyway:
+    # Bases creadas antes de Flyway (por ddl-auto) se marcan como V1 sin ejecutarla.
+    baseline-on-migrate: true
+    baseline-version: 1
+    locations: classpath:db/migration
 
   # ERR-03: habilitar y dimensionar la subida de archivos multipart/form-data.
   servlet:
@@ -79,6 +87,9 @@ jwt:
 server:
   # Las plataformas (Railway, Render...) asignan el puerto en PORT.
   port: ${PORT:8083}
+  # Detrás del proxy de Railway (TLS terminado afuera): sin esto las URLs generadas
+  # (fotos, links) salían con http:// y el navegador las bloqueaba por mixed content.
+  forward-headers-strategy: native
   # Respuestas JSON/texto >= 1 KB viajan comprimidas (gzip) si el cliente lo acepta.
   compression:
     enabled: true
@@ -92,10 +103,60 @@ app:
   # (p. ej. https://printops.vercel.app,http://localhost:5173). "*" = cualquiera.
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
+  # Archivos subidos (fotos de órdenes e impresoras).
+  # - s3: bucket privado S3/R2 con URLs prefirmadas (recomendado en Railway: el disco del
+  #   contenedor se borra en cada deploy).
+  # - local: carpeta en disco + URLs firmadas con HMAC servidas por /api/files. En Railway
+  #   solo sirve con un Volume montado en STORAGE_LOCAL_DIR.
+  storage:
+    type: ${STORAGE_TYPE:local}
+    url-ttl: ${STORAGE_URL_TTL:PT1H}
+    local-dir: ${STORAGE_LOCAL_DIR:uploads}
+    s3:
+      bucket: ${S3_BUCKET:}
+      # R2: https://<ACCOUNT_ID>.r2.cloudflarestorage.com · AWS: vacío (usa la región).
+      endpoint: ${S3_ENDPOINT:}
+      region: ${S3_REGION:auto}
+      access-key: ${S3_ACCESS_KEY:}
+      secret-key: ${S3_SECRET_KEY:}
+  auth:
+    # Cookie httpOnly del refresh token (no la puede leer JavaScript: protege contra XSS).
+    # Requiere que el front y la API compartan origen (proxy de nginx del front).
+    refresh-cookie:
+      name: printops_rt
+      secure: ${AUTH_COOKIE_SECURE:true}
+  # Límites por IP (y por email en login) para endpoints públicos sensibles.
+  rate-limit:
+    enabled: ${RATE_LIMIT_ENABLED:true}
+  # URL pública del front, para armar links compartibles (presupuestos públicos).
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
   metrics:
     # Tarifa horaria del operario para el costo de mano de obra del dashboard (US-08).
     operator-hourly-rate: ${METRICS_OPERATOR_HOURLY_RATE:20.0}
 
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    # Readiness (lo que mira Railway en cada deploy) depende solo de la base: si Redis
+    # se cae la app sigue funcionando sin cache, no tiene sentido sacarla de servicio.
+    redis:
+      enabled: false
+
+springdoc:
+  api-docs:
+    enabled: ${OPENAPI_ENABLED:true}
+  swagger-ui:
+    enabled: ${OPENAPI_ENABLED:true}
+    path: /swagger-ui.html
 
 google:
   # Client IDs de OAuth aceptados como audience del ID token (separados por coma):

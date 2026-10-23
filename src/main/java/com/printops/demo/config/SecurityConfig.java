@@ -61,13 +61,24 @@ public class SecurityConfig {
                     "/api/auth/reset-password",
                     "/api/auth/verify-email",
                     "/api/auth/resend-verification",
-                    "/uploads/**",
+                    // Archivos del storage local: la autorización es la firma de la URL
+                    // (un <img> no puede mandar Authorization). Reemplaza /uploads/** público.
+                    "/api/files/**",
+                    // Presupuesto compartido con el cliente: el token aleatorio del link es la llave.
+                    "/api/public/**",
+                    // Agente local de impresoras: se autentica con el token del dispositivo.
+                    "/api/agent/**",
+                    "/actuator/health", "/actuator/health/**",
+                    "/v3/api-docs", "/v3/api-docs/**", "/swagger-ui.html", "/swagger-ui/**",
                     "/ws/**"
                 ).permitAll()
                 // Solo los técnicos crean órdenes (US-05: el técnico es quien la ejecuta).
                 .requestMatchers(HttpMethod.POST, "/api/orders").hasRole("TECNICO")
                 // US-08: dashboard de métricas globales, solo para el supervisor (MANAGER).
                 .requestMatchers("/api/metrics/**").hasRole("MANAGER")
+                // Gestión del taller: actividad, exportaciones, proveedores y compras.
+                .requestMatchers("/api/activity/**", "/api/exports/**",
+                        "/api/suppliers/**", "/api/purchase-orders/**").hasRole("MANAGER")
                 // Endpoints de negocio: solo usuarios autenticados con rol MANAGER o TECNICO.
                 .requestMatchers(
                     "/api/printers/**",
@@ -76,8 +87,11 @@ public class SecurityConfig {
                     "/api/notifications/**",
                     "/api/workspaces/**",
                     "/api/rules/**",
-                    "/api/quotes/**"
+                    "/api/quotes/**",
+                    "/api/jobs/**",
+                    "/api/spools/**"
                 ).hasAnyRole("MANAGER", "TECNICO")
+                    .requestMatchers("/actuator/**").denyAll()
                 .anyRequest().authenticated()
             )
             // Si el token falta/es inválido/expiró → 401 (así el frontend dispara el refresh).

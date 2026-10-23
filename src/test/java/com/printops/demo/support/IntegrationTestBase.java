@@ -38,27 +38,51 @@ import static org.assertj.core.api.Assertions.assertThat;
 // Un unico contenedor por JVM de tests (se reutiliza el contexto de Spring).
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
+@org.springframework.context.annotation.Import(TestFlywayConfig.class)
 public abstract class IntegrationTestBase {
 
-    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:16-alpine");
+    // Sin Docker se puede usar una base local descartable: TEST_JDBC_URL (+ TEST_DB_USER /
+    // TEST_DB_PASSWORD). El nombre de la base tiene que terminar en "_test": cada corrida la
+    // limpia entera (TestFlywayConfig) antes de migrar.
+    private static final String EXTERNAL_URL = System.getenv("TEST_JDBC_URL");
+    static final PostgreSQLContainer POSTGRES = EXTERNAL_URL == null ? new PostgreSQLContainer("postgres:16-alpine") : null;
     private static final AtomicLong SEQ = new AtomicLong(1000);
     private static final Path MEASUREMENTS = Path.of("build", "perf-measurements.txt");
 
     static {
-        POSTGRES.start();
+        if (POSTGRES != null) {
+            POSTGRES.start();
+        }
+    }
+
+    static String jdbcUrl() {
+        return POSTGRES != null ? POSTGRES.getJdbcUrl() : EXTERNAL_URL;
     }
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-        registry.add("spring.datasource.username", POSTGRES::getUsername);
-        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        if (POSTGRES != null) {
+            registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+            registry.add("spring.datasource.username", POSTGRES::getUsername);
+            registry.add("spring.datasource.password", POSTGRES::getPassword);
+        } else {
+            registry.add("spring.datasource.url", () -> EXTERNAL_URL);
+            registry.add("spring.datasource.username", () -> System.getenv().getOrDefault("TEST_DB_USER", "printops"));
+            registry.add("spring.datasource.password", () -> System.getenv().getOrDefault("TEST_DB_PASSWORD", ""));
+        }
     }
 
     // Red de seguridad: jamas correr contra la base de desarrollo (localhost:5432/printops).
+    // Con una base externa solo se acepta una cuyo nombre termine en "_test".
     @BeforeAll
     static void neverTouchDevDatabase() {
-        assertThat(POSTGRES.getJdbcUrl()).doesNotContain(":5432/").doesNotContain("/printops");
+        if (POSTGRES != null) {
+            assertThat(POSTGRES.getJdbcUrl()).doesNotContain(":5432/").doesNotContain("/printops");
+        } else {
+            String db = EXTERNAL_URL.replaceFirst("\\?.*$", "");
+            db = db.substring(db.lastIndexOf('/') + 1);
+            assertThat(db).as("TEST_JDBC_URL debe apuntar a una base *_test").endsWith("_test");
+        }
     }
 
     @Autowired protected EntityManagerFactory emf;
@@ -221,7 +245,7 @@ public abstract class IntegrationTestBase {
                 o.addPart(external);
                 for (int k = 0; k < 2; k++) {
                     OrderPhoto ph = new OrderPhoto();
-                    ph.setUrl("http://localhost/uploads/orders/" + n + "-" + k + ".jpg");
+                    ph.setStorageKey("orders/" + java.util.UUID.randomUUID() + ".jpg");
                     o.addPhoto(ph);
                 }
                 MaintenanceOrder saved = orderRepository.save(o);

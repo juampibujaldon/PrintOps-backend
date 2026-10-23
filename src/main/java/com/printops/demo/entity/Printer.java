@@ -32,8 +32,9 @@ public class Printer {
     @Column(nullable = false)
     private PrinterStatus status;
 
-    @Column(nullable = true)
-    private String photoUrl;
+    // Clave en el storage (p. ej. "printers/<uuid>.jpg"); la URL firmada se arma al responder.
+    @Column(name = "photo_key")
+    private String photoKey;
 
     // Ubicación física de la impresora (FIX 3). Opcional.
     @Column(nullable = true)
@@ -90,8 +91,8 @@ public class Printer {
     public void setPurchaseDate(LocalDate purchaseDate) { this.purchaseDate = purchaseDate; }
     public PrinterStatus getStatus() { return status; }
     public void setStatus(PrinterStatus status) { this.status = status; }
-    public String getPhotoUrl() { return photoUrl; }
-    public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
+    public String getPhotoKey() { return photoKey; }
+    public void setPhotoKey(String photoKey) { this.photoKey = photoKey; }
     public String getLocation() { return location; }
     public void setLocation(String location) { this.location = location; }
     public LocalDate getNextMaintenanceDate() { return nextMaintenanceDate; }

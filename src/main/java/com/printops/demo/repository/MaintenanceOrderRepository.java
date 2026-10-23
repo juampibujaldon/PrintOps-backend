@@ -40,6 +40,27 @@ public interface MaintenanceOrderRepository extends JpaRepository<MaintenanceOrd
                                        @Param("printerId") Long printerId,
                                        @Param("status") OrderStatus status);
 
+    // Misma consulta, paginada en SQL. El fetch es solo to-one, asi que LIMIT/OFFSET se
+    // aplica en la base (con colecciones Hibernate paginaria en memoria).
+    @Query(value = """
+            SELECT o FROM MaintenanceOrder o LEFT JOIN FETCH o.assignedTo
+            WHERE o.workspaceId = :workspaceId
+              AND (:printerId IS NULL OR o.printer.id = :printerId)
+              AND (:status IS NULL OR o.status = :status)
+            ORDER BY CASE WHEN o.status = com.printops.demo.entity.OrderStatus.IN_REVIEW THEN 0 ELSE 1 END,
+                     o.createdAt DESC, o.id DESC
+            """,
+            countQuery = """
+            SELECT COUNT(o) FROM MaintenanceOrder o
+            WHERE o.workspaceId = :workspaceId
+              AND (:printerId IS NULL OR o.printer.id = :printerId)
+              AND (:status IS NULL OR o.status = :status)
+            """)
+    org.springframework.data.domain.Page<MaintenanceOrder> findPageForList(@Param("workspaceId") Long workspaceId,
+                                                                          @Param("printerId") Long printerId,
+                                                                          @Param("status") OrderStatus status,
+                                                                          org.springframework.data.domain.Pageable pageable);
+
     // US-06: cross-tenant (lo usa el scheduler). No se filtra por workspace.
     boolean existsByMaintenanceRuleIdAndStatusIn(Long maintenanceRuleId, Collection<OrderStatus> statuses);
 

@@ -9,6 +9,7 @@ import com.printops.demo.repository.SparePartRepository;
 import com.printops.demo.repository.StatusHistoryRepository;
 import com.printops.demo.repository.UserRepository;
 import com.printops.demo.security.TenantContext;
+import com.printops.demo.storage.FileStorage;
 import com.printops.demo.util.UploadFiles;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +43,7 @@ public class OrderService {
     private final StatusTransitionValidator statusTransitionValidator;
     private final SimpMessagingTemplate messagingTemplate;
     private final DashboardCache dashboardCache;
-    private final String uploadDir = "uploads/orders/";
+    private final FileStorage fileStorage;
 
     public OrderService(MaintenanceOrderRepository orderRepository,
                         PrinterRepository printerRepository,
@@ -53,7 +54,8 @@ public class OrderService {
                         SparePartService sparePartService,
                         StatusTransitionValidator statusTransitionValidator,
                         SimpMessagingTemplate messagingTemplate,
-                        DashboardCache dashboardCache) {
+                        DashboardCache dashboardCache,
+                        FileStorage fileStorage) {
         this.orderRepository = orderRepository;
         this.printerRepository = printerRepository;
         this.sparePartRepository = sparePartRepository;
@@ -64,11 +66,7 @@ public class OrderService {
         this.statusTransitionValidator = statusTransitionValidator;
         this.messagingTemplate = messagingTemplate;
         this.dashboardCache = dashboardCache;
-        try {
-            Files.createDirectories(Paths.get(uploadDir));
-        } catch (IOException e) {
-            throw new RuntimeException("No se pudo crear el directorio de uploads de órdenes.", e);
-        }
+        this.fileStorage = fileStorage;
     }
 
     private Long wsId() {
@@ -141,6 +139,13 @@ public class OrderService {
         return orderRepository.findForList(wsId(), printerId, filter).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<OrderResponseDTO> page(Long printerId, String status, Integer page, Integer size) {
+        OrderStatus filter = status != null ? parseStatus(status) : null;
+        return PageResponse.of(orderRepository.findPageForList(wsId(), printerId, filter,
+                PageResponse.request(page, size)), this::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -312,21 +317,9 @@ public class OrderService {
             if (photo == null || photo.isEmpty()) {
                 continue;
             }
-            String fileName = UploadFiles.safeImageFileName(photo);
-            try {
-                Path targetLocation = Paths.get(uploadDir).resolve(fileName);
-                Files.copy(photo.getInputStream(), targetLocation, StandardCopyOption.REPLACE_EXISTING);
-                String url = ServletUriComponentsBuilder.fromCurrentContextPath()
-                        .path("/uploads/orders/")
-                        .path(fileName)
-                        .toUriString();
-                OrderPhoto op = new OrderPhoto();
-                op.setUrl(url);
-                order.addPhoto(op);
-            } catch (IOException e) {
-                log.error("Error guardando foto de la orden {}", id, e);
-                throw new RuntimeException("No se pudo guardar la foto.", e);
-            }
+            OrderPhoto op = new OrderPhoto();
+            op.setStorageKey(fileStorage.storeImage("orders", photo));
+            order.addPhoto(op);
         }
         return toResponse(orderRepository.save(order));
     }
@@ -393,7 +386,7 @@ public class OrderService {
                 .toList();
 
         List<OrderResponseDTO.PhotoResponse> photos = o.getPhotos().stream()
-                .map(ph -> new OrderResponseDTO.PhotoResponse(ph.getId(), ph.getUrl(), ph.getLabel()))
+                .map(ph -> new OrderResponseDTO.PhotoResponse(ph.getId(), fileStorage.urlFor(ph.getStorageKey()), ph.getLabel()))
                 .toList();
 
         return new OrderResponseDTO(

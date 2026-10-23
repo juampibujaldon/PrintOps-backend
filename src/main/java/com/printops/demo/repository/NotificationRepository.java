@@ -12,5 +12,10 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     // no se exponen porque no tienen workspace y se filtrarían entre talleres.
     List<Notification> findByRecipientUserIdOrderByCreatedAtDesc(Long recipientUserId);
 
+    org.springframework.data.domain.Page<Notification> findByRecipientUserIdOrderByCreatedAtDescIdDesc(
+            Long recipientUserId, org.springframework.data.domain.Pageable pageable);
+
+    long countByRecipientUserIdAndReadFalse(Long recipientUserId);
+
     Optional<Notification> findByIdAndRecipientUserId(Long id, Long recipientUserId);
 }

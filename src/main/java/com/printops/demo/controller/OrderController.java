@@ -37,10 +37,17 @@ public class OrderController {
     }
 
     // Listar con filtros opcionales. Las órdenes en REVISIÓN van primero.
+    // Con `page` responde una página (PageResponse); sin `page`, la lista completa
+    // (compatibilidad con clientes anteriores a la paginación).
     @GetMapping
-    public ResponseEntity<List<OrderResponseDTO>> list(
+    public ResponseEntity<?> list(
             @RequestParam(required = false) Long printerId,
-            @RequestParam(required = false) String status) {
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size) {
+        if (page != null) {
+            return ResponseEntity.ok(orderService.page(printerId, status, page, size));
+        }
         return ResponseEntity.ok(orderService.list(printerId, status));
     }
 
