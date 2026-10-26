@@ -195,3 +195,9 @@ src/
 - Las fotos se guardan en `uploads/printers/` (relativo al directorio de ejecución). La carpeta se crea automáticamente al iniciar.
 - El `qrCodeData` de cada impresora se genera con UUID via `@PrePersist` — no hace falta enviarlo desde el cliente.
 - El schema se sincroniza en cada arranque (`ddl-auto: update`). En producción se recomienda migrar a **Flyway**.
+
+
+
+
+
+hola mundo
