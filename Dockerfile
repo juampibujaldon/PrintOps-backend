@@ -8,7 +8,7 @@ COPY src src
 RUN ./gradlew bootJar --no-daemon -x test
 
 # Runtime: solo el JRE y el jar.
-FROM eclipse-temurin:21-jre
+FROM eclipse-temurin:26.0.1_8-jre
 WORKDIR /app
 COPY --from=build /app/build/libs/app.jar app.jar
 RUN mkdir -p uploads
