@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Operaciones locales de PrintOps backend contra Azure Container Apps.
 
-Uso:  python scripts/azure.py <build|push|deploy|stop|delete|list|scan> [--tag TAG] [--yes]
+Uso:  python scripts/azure.py [comando] [opciones]
+      python scripts/azure.py                         # menú interactivo
 
 Toda la configuración sale de variables de entorno (ver DEPLOY.md):
-  ACR_NAME                  nombre del Azure Container Registry (sin .azurecr.io)   [push, deploy, list]
-  AZURE_RESOURCE_GROUP      grupo de recursos                                        [deploy, stop, delete, list]
-  CONTAINERAPP_ENV          entorno de Container Apps (solo al crear la app)         [deploy]
+  ACR_NAME                  nombre del registry (default: acrprintopscyj28)
+  AZURE_RESOURCE_GROUP      grupo de recursos (default: rg-printops)
+  CONTAINERAPP_ENV          entorno de Container Apps (default: cae-printops)
   CONTAINERAPP_NAME         nombre del Container App (default: printops-backend)
   IMAGE_NAME                nombre de la imagen (default: nombre del repo normalizado)
   IMAGE_TAG                 tag (default: dev-<sha corto de git>); también --tag
+  LOG_ANALYTICS_WORKSPACE   workspace de Log Analytics para `logs` (default: law-printops)
 Secretos de la app, solo al CREAR el Container App (se guardan como secrets del app):
   JWT_SECRET, DB_URL, DB_USERNAME, DB_PASSWORD               (obligatorios)
   APPLICATIONINSIGHTS_CONNECTION_STRING, RESEND_API_KEY      (opcionales)
@@ -20,12 +22,14 @@ y piden confirmación (y/n). --yes la saltea.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shlex
 import shutil
 import subprocess
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -53,6 +57,11 @@ REQUIRED_SECRETS = ["JWT_SECRET", "DB_URL", "DB_USERNAME", "DB_PASSWORD"]
 # ---------- utilidades ----------
 
 def env(name: str, default: str | None = None, required: bool = False) -> str:
+    default = default or {
+        "ACR_NAME": "acrprintopscyj28",
+        "AZURE_RESOURCE_GROUP": "rg-printops",
+        "CONTAINERAPP_ENV": "cae-printops",
+    }.get(name)
     value = os.environ.get(name, default)
     if required and not value:
         sys.exit(f"Falta la variable de entorno {name} (ver DEPLOY.md).")
@@ -112,8 +121,14 @@ def confirm(summary: str, cmds: list[list[str]], args) -> None:
 
 def run(cmd: list[str], check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
     if not capture:
-        print(f"→ {masked(cmd)}")
+        print(f"→ {masked(cmd)}", flush=True)
     return subprocess.run(cmd, check=check, text=True, capture_output=capture)
+
+
+def failure(e: subprocess.CalledProcessError) -> str:
+    """Mensaje de error de un comando; incluye stderr si se capturó la salida."""
+    detail = (e.stderr or "").strip()
+    return f"Falló: {masked(e.cmd)} (código {e.returncode})" + (f"\n{detail}" if detail else "")
 
 
 def require_tool(tool: str, hint: str) -> None:
@@ -130,10 +145,34 @@ def acr_password() -> str:
     return r.stdout.strip()
 
 
+def require_image_in_acr(tag: str) -> None:
+    """Corta si el tag no está en el ACR: un update con una imagen inexistente deja la app caída."""
+    acr = env("ACR_NAME", required=True)
+    r = run(["az", "acr", "repository", "show", "-n", acr, "--image", f"{image_name()}:{tag}",
+             "--query", "name", "-o", "tsv"], check=False, capture=True)
+    if r.returncode == 0 and r.stdout.strip():
+        return
+    error = (r.stderr or r.stdout).lower()
+    if "does not exist" in error or "not found" in error or "unknown" in error:
+        sys.exit(f"La imagen {image_name()}:{tag} no está en el ACR {acr}. Construila y subila primero:\n"
+                 f"  python3 scripts/azure.py build --tag {tag}\n"
+                 f"  python3 scripts/azure.py push --tag {tag}")
+    detail = error.strip().splitlines()[0] if error.strip() else "error de Azure CLI"
+    sys.exit(f"No se pudo verificar la imagen en el ACR {acr}: {detail}")
+
+
 def app_exists(name: str, rg: str) -> bool:
     r = run(["az", "containerapp", "show", "-n", name, "-g", rg, "--query", "name", "-o", "tsv"],
             check=False, capture=True)
-    return r.returncode == 0 and r.stdout.strip() == name
+    if r.returncode == 0:
+        if r.stdout.strip() == name:
+            return True
+        sys.exit(f"No se pudo confirmar el nombre del Container App {name} en {rg}.")
+    error = (r.stderr or r.stdout).lower()
+    if "resourcenotfound" in error or "not found" in error:
+        return False
+    detail = error.splitlines()[0] if error else "error de Azure CLI"
+    sys.exit(f"No se pudo consultar el Container App {name} en {rg}: {detail}")
 
 
 # ---------- comandos ----------
@@ -142,15 +181,20 @@ def cmd_build(args) -> None:
     require_tool("docker", "Instalá Docker Desktop.")
     local = f"{image_name()}:{image_tag(args)}"
     tags = ["-t", local]
-    if os.environ.get("ACR_NAME"):
+    if env("ACR_NAME"):
         tags += ["-t", f"{registry()}/{local}"]
     # Container Apps corre linux/amd64: forzarlo aunque se buildee desde una Mac ARM.
-    run(["docker", "build", "--platform", "linux/amd64", *tags, str(ROOT)])
+    # Mismo formato que la imagen del CI (manifest Docker v2, sin índice ni attestations). Docker
+    # Desktop con el store de containerd sube por defecto un índice OCI con un manifest
+    # "unknown/unknown", y Container Apps lo reporta como "image not found in the registry".
+    run(["docker", "build", "--platform", "linux/amd64", "--provenance=false", "--sbom=false",
+         "--output", "type=image,oci-mediatypes=false", *tags, str(ROOT)])
     print(f"\nImagen lista: {local}")
 
 
 def cmd_push(args) -> None:
     require_tool("az", "Instalá Azure CLI.")
+    require_tool("docker", "Instalá Docker Desktop.")
     remote = f"{registry()}/{image_name()}:{image_tag(args)}"
     acr = env("ACR_NAME", required=True)
     confirm(f"Se va a subir la imagen {remote} al ACR {acr}.",
@@ -163,8 +207,10 @@ def cmd_deploy(args) -> None:
     require_tool("az", "Instalá Azure CLI.")
     rg = env("AZURE_RESOURCE_GROUP", required=True)
     name = app_name()
-    image = f"{registry()}/{image_name()}:{image_tag(args)}"
-    limits = ["--cpu", CPU, "--memory", MEMORY, "--min-replicas", MIN_REPLICAS, "--max-replicas", MAX_REPLICAS]
+    tag = image_tag(args)
+    image = f"{registry()}/{image_name()}:{tag}"
+    require_image_in_acr(tag)
+    limits =["--cpu", CPU, "--memory", MEMORY, "--min-replicas", MIN_REPLICAS, "--max-replicas", MAX_REPLICAS]
 
     if app_exists(name, rg):
         cmd = ["az", "containerapp", "update", "-n", name, "-g", rg, "--image", image, *limits, "-o", "table"]
@@ -195,6 +241,8 @@ def cmd_deploy(args) -> None:
     confirm(f"Se va a CREAR el Container App {name} en {rg} ({CPU} vCPU, {MEMORY}, "
             f"réplicas {MIN_REPLICAS}-{MAX_REPLICAS}) con la imagen {image}.", [cmd], args)
     fqdn = run(cmd, capture=True).stdout.strip()
+    if not fqdn:
+        sys.exit(f"El Container App {name} se creó pero Azure no devolvió la URL; revisá el ingress.")
     print(f"\nContainer App creado: https://{fqdn}")
     # El magic link de verificación necesita la URL pública.
     set_url = ["az", "containerapp", "update", "-n", name, "-g", rg,
@@ -217,7 +265,91 @@ def cmd_stop(args) -> None:
     confirm(f"Se van a DESACTIVAR {len(revisions)} revisión(es) de {name}: {', '.join(revisions)}.", cmds, args)
     for c in cmds:
         run(c)
-    print("Revisión desactivada. Para volver: az containerapp revision activate ... --revision <nombre>")
+    print("Revisiones desactivadas. Ejecutá `python3 scripts/azure.py start` para reactivar la última.")
+
+
+def cmd_start(args) -> None:
+    require_tool("az", "Instalá Azure CLI.")
+    rg, name = env("AZURE_RESOURCE_GROUP", required=True), app_name()
+    r = run(["az", "containerapp", "revision", "list", "-n", name, "-g", rg, "--all",
+             "--query", "[].{name:name,active:properties.active,created:properties.createdTime}", "-o", "json"],
+            capture=True)
+    all_revisions = json.loads(r.stdout or "[]")
+    if any(revision["active"] for revision in all_revisions):
+        print("La app ya tiene una revisión activa.")
+        return
+    revisions = [revision for revision in all_revisions if not revision["active"]]
+    if not revisions:
+        print("No hay revisiones inactivas para reactivar.")
+        return
+    revision = max(revisions, key=lambda item: item["created"] or "")["name"]
+    cmd = ["az", "containerapp", "revision", "activate", "-n", name, "-g", rg, "--revision", revision]
+    confirm(f"Se va a REACTIVAR la revisión {revision} de {name}.", [cmd], args)
+    run(cmd)
+
+
+def cmd_status(args) -> None:
+    require_tool("az", "Instalá Azure CLI.")
+    rg, name = env("AZURE_RESOURCE_GROUP", required=True), app_name()
+    run(["az", "containerapp", "show", "-n", name, "-g", rg, "--query",
+         "{Nombre:name,Estado:properties.runningStatus,URL:properties.configuration.ingress.fqdn,"
+         "Imagen:properties.template.containers[0].image,Revision:properties.latestRevisionName}", "-o", "table"])
+
+
+def cmd_revisions(args) -> None:
+    require_tool("az", "Instalá Azure CLI.")
+    run(["az", "containerapp", "revision", "list", "-n", app_name(),
+         "-g", env("AZURE_RESOURCE_GROUP", required=True), "--all",
+         "--query", "[].{Revision:name,Activa:properties.active,Replicas:properties.replicas,Creada:properties.createdTime}",
+         "-o", "table"])
+
+
+def cmd_logs(args) -> None:
+    require_tool("az", "Instalá Azure CLI.")
+    rg = env("AZURE_RESOURCE_GROUP", required=True)
+    workspace = env("LOG_ANALYTICS_WORKSPACE", "law-printops")
+    workspace_id = run(["az", "monitor", "log-analytics", "workspace", "show", "-g", rg,
+                        "-n", workspace, "--query", "customerId", "-o", "tsv"], capture=True).stdout.strip()
+    if not workspace_id:
+        sys.exit(f"No se encontró el workspace de Log Analytics {workspace} en {rg}.")
+
+    seen: dict[tuple, None] = {}  # dict para conservar el orden de inserción al recortar
+    lookback = "24h"
+    if args.follow:
+        print("Logs desde Log Analytics; pueden llegar con unos minutos de demora. Ctrl+C para salir.\n")
+    while True:
+        escaped_app_name = app_name().replace("'", "''")
+        query = ("ContainerAppConsoleLogs_CL "
+                 f"| where ContainerAppName_s == '{escaped_app_name}' "
+                 f"| where TimeGenerated > ago({lookback}) "
+                 "| project TimeGenerated, RevisionName_s, ContainerName_s, Log_s "
+                 "| top 100 by TimeGenerated desc")
+        result = run(["az", "monitor", "log-analytics", "query", "--workspace", workspace_id,
+                      "--analytics-query", query, "--output", "json"], capture=True)
+        rows = json.loads(result.stdout or "[]")
+        # La query ya viene ordenada (más nuevo primero). No reordenar en Python: TimeGenerated
+        # es texto con decimales variables (".19Z" vs ".192Z") y no ordena bien como string.
+        for row in reversed(rows):
+            key = (row["TimeGenerated"], row.get("RevisionName_s"), row.get("ContainerName_s"), row.get("Log_s"))
+            if key not in seen:
+                print(f"{row['TimeGenerated']}  {row.get('Log_s', '')}", flush=True)
+                seen[key] = None
+        if not args.follow:
+            return
+        lookback = "1h"
+        while len(seen) > 2000:
+            del seen[next(iter(seen))]
+        time.sleep(15)
+
+
+def cmd_url(args) -> None:
+    require_tool("az", "Instalá Azure CLI.")
+    r = run(["az", "containerapp", "show", "-n", app_name(), "-g", env("AZURE_RESOURCE_GROUP", required=True),
+             "--query", "properties.configuration.ingress.fqdn", "-o", "tsv"], capture=True)
+    fqdn = r.stdout.strip()
+    if not fqdn:
+        sys.exit(f"El Container App {app_name()} no tiene ingress público.")
+    print(f"https://{fqdn}")
 
 
 def cmd_delete(args) -> None:
@@ -243,22 +375,94 @@ def cmd_list(args) -> None:
 
 
 def cmd_scan(args) -> None:
+    require_tool("docker", "Instalá Docker Desktop y asegurate de que esté iniciado.")
     require_tool("grype", "Instalá Grype: brew install grype")
-    image = f"{image_name()}:{image_tag(args)}"
-    cmd = ["grype", image]
+    tag = image_tag(args)
+    local = f"{image_name()}:{tag}"
+    candidates = [local, f"{registry()}/{local}"]
+    image = None
+    for candidate in candidates:
+        inspected = run(["docker", "image", "inspect", candidate], check=False, capture=True)
+        if inspected.returncode == 0:
+            image = candidate
+            break
+        error = (inspected.stderr or inspected.stdout).lower()
+        if not any(marker in error for marker in ("no such image", "no such object", "not found")):
+            detail = error.splitlines()[0] if error else "error de Docker"
+            sys.exit(f"No se pudo consultar Docker: {detail}")
+    if image is None:
+        sys.exit(f"No está la imagen {local} en Docker. Construí ese tag con "
+                 f"`python3 scripts/azure.py build --tag {tag}` o elegí un tag ya descargado.")
+    # docker: hace que grype use la imagen local ya verificada en vez de bajarla del registry.
+    cmd = ["grype", f"docker:{image}"]
     if args.fail_on:
         cmd += ["--fail-on", args.fail_on]
-    sys.exit(run(cmd, check=False).returncode)
+    result = run(cmd, check=False)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, cmd)
+
+
+MENU = [
+    ("build", "Construir imagen"), ("push", "Subir imagen al ACR"),
+    ("deploy", "Desplegar / actualizar"), ("status", "Estado del Container App"),
+    ("url", "Ver URL"), ("logs", "Seguir logs (Log Analytics)"), ("revisions", "Listar revisiones"),
+    ("list", "Listar apps e imágenes"),
+    ("scan", "Escanear imagen con Grype"), ("start", "Reactivar app"),
+    ("stop", "Apagar app"), ("delete", "Borrar Container App"),
+]
+
+
+def interactive_menu() -> None:
+    handlers = {
+        "build": cmd_build, "push": cmd_push, "deploy": cmd_deploy, "status": cmd_status,
+        "url": cmd_url, "logs": cmd_logs, "revisions": cmd_revisions, "list": cmd_list, "scan": cmd_scan,
+        "start": cmd_start, "stop": cmd_stop, "delete": cmd_delete,
+    }
+    while True:
+        print("\033[2J\033[H", end="")
+        print("\033[1;36m╭──────────────────────────────────────╮")
+        print("│       PRINTOPS · AZURE CONTAINER APP │")
+        print("╰──────────────────────────────────────╯\033[0m")
+        print(f"  App: {app_name()}   Grupo: {env('AZURE_RESOURCE_GROUP')}   ACR: {env('ACR_NAME')}\n")
+        for number, (_, label) in enumerate(MENU, 1):
+            print(f"  \033[1;33m{number:2}\033[0m  {label}")
+        print("\n   0  Salir")
+        choice = input("\nElegí una opción: ").strip()
+        if choice in ("0", "q", "Q"):
+            return
+        if not choice.isdigit() or not 1 <= int(choice) <= len(MENU):
+            input("Opción inválida. Enter para continuar...")
+            continue
+        command, _ = MENU[int(choice) - 1]
+        args = argparse.Namespace(tag=None, yes=False, fail_on=None, follow=command == "logs")
+        if command in {"build", "push", "deploy", "scan"}:
+            args.tag = input("Tag de imagen (Enter para usar el tag por defecto): ").strip() or None
+        try:
+            handlers[command](args)
+        except subprocess.CalledProcessError as e:
+            print(failure(e))
+        except SystemExit as e:
+            # confirm() y las validaciones usan sys.exit: en el menú solo cortan la opción actual.
+            if e.code not in (None, 0):
+                print(e.code)
+        except KeyboardInterrupt:
+            print("\nOperación cancelada.")
+        input("\nEnter para volver al menú...")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
     commands = {
         "build": (cmd_build, "docker build + tag versionado"),
         "push": (cmd_push, "login al ACR y push de la imagen"),
         "deploy": (cmd_deploy, "crea o actualiza el Container App con los límites de costo"),
-        "stop": (cmd_stop, "desactiva la revisión activa"),
+        "status": (cmd_status, "muestra el estado de Azure"),
+        "url": (cmd_url, "muestra la URL pública"),
+        "logs": (cmd_logs, "muestra logs; --follow para seguirlos"),
+        "revisions": (cmd_revisions, "lista las revisiones"),
+        "start": (cmd_start, "reactiva la revisión inactiva más reciente"),
+        "stop": (cmd_stop, "desactiva las revisiones activas"),
         "delete": (cmd_delete, "borra el Container App"),
         "list": (cmd_list, "lista apps e imágenes (tabla)"),
         "scan": (cmd_scan, "escanea la imagen local con grype"),
@@ -267,15 +471,26 @@ def main() -> None:
         p = sub.add_parser(name, help=help_text)
         p.add_argument("--tag", help="tag de la imagen (default: IMAGE_TAG o dev-<sha>)")
         p.add_argument("--yes", "-y", action="store_true", help="no pedir confirmación")
+        if name == "logs":
+            p.add_argument("--follow", "-f", action="store_true", help="consultar logs periódicamente; pueden llegar con demora")
         if name == "scan":
             p.add_argument("--fail-on", choices=["negligible", "low", "medium", "high", "critical"],
                            help="salir con error si hay vulnerabilidades de esta severidad o mayor")
         p.set_defaults(func=func)
     args = parser.parse_args()
+    if not args.command:
+        try:
+            if sys.stdin.isatty():
+                interactive_menu()
+            else:
+                parser.print_help()
+        except KeyboardInterrupt:
+            print("\nMenú cerrado.")
+        return
     try:
         args.func(args)
     except subprocess.CalledProcessError as e:
-        sys.exit(f"Falló: {masked(e.cmd)} (código {e.returncode})")
+        sys.exit(failure(e))
     except KeyboardInterrupt:
         sys.exit("\nCancelado.")
 

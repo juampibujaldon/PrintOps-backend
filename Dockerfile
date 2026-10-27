@@ -37,7 +37,7 @@ ADD --chmod=644 --checksum=sha256:${AI_AGENT_SHA256} \
 # Temurin JRE sobre Alpine: con `apk upgrade` queda sin CVE críticos ni altos. Las
 # distroless de Debian (12 y 13) arrastran paquetes marcados "won't fix" que Grype
 # reporta como altos. Solo JRE (sin compilador) y usuario sin privilegios.
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine AS runtime
 RUN apk upgrade --no-cache \
     && addgroup -S -g 65532 nonroot \
     && adduser -S -D -H -u 65532 -G nonroot -s /sbin/nologin nonroot

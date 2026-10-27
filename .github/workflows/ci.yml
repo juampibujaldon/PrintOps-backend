@@ -108,6 +108,10 @@ jobs:
           load: true
           push: false
           tags: ${{ steps.meta.outputs.tags }}
+          # Base al día y la etapa runtime siempre sin caché: si no, el `apk upgrade` cacheado
+          # deja paquetes Alpine viejos y Snyk frena por CVE que ya tienen arreglo.
+          pull: true
+          no-cache-filters: runtime
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
