@@ -250,42 +250,40 @@ def cmd_deploy(args) -> None:
     run(set_url)
 
 
+def app_fqdn(name: str, rg: str) -> str:
+    """URL pública del app, o "" si el ingress está deshabilitado (app apagada)."""
+    return run(["az", "containerapp", "show", "-n", name, "-g", rg,
+                "--query", "properties.configuration.ingress.fqdn", "-o", "tsv"], capture=True).stdout.strip()
+
+
+# Apagar = cortar el ingress. `revision deactivate` no sirve: en modo Single Azure no deja
+# desactivar la única revisión. Sin ingress nadie puede despertar la app y queda en 0 réplicas.
 def cmd_stop(args) -> None:
     require_tool("az", "Instalá Azure CLI.")
-    rg = env("AZURE_RESOURCE_GROUP", required=True)
-    name = app_name()
-    r = run(["az", "containerapp", "revision", "list", "-n", name, "-g", rg,
-             "--query", "[?properties.active].name", "-o", "tsv"], capture=True)
-    revisions = r.stdout.split()
-    if not revisions:
-        print("No hay revisiones activas.")
+    rg, name = env("AZURE_RESOURCE_GROUP", required=True), app_name()
+    if not app_fqdn(name, rg):
+        print(f"{name} ya está apagada (sin ingress).")
         return
-    cmds = [["az", "containerapp", "revision", "deactivate", "-n", name, "-g", rg, "--revision", rev]
-            for rev in revisions]
-    confirm(f"Se van a DESACTIVAR {len(revisions)} revisión(es) de {name}: {', '.join(revisions)}.", cmds, args)
-    for c in cmds:
-        run(c)
-    print("Revisiones desactivadas. Ejecutá `python3 scripts/azure.py start` para reactivar la última.")
+    cmd = ["az", "containerapp", "ingress", "disable", "-n", name, "-g", rg]
+    confirm(f"Se va a APAGAR {name}: se deshabilita el ingress, la URL deja de responder y "
+            "la app baja a 0 réplicas.", [cmd], args)
+    run(cmd)
+    print("App apagada. Ejecutá `python3 scripts/azure.py start` para levantarla.")
 
 
 def cmd_start(args) -> None:
     require_tool("az", "Instalá Azure CLI.")
     rg, name = env("AZURE_RESOURCE_GROUP", required=True), app_name()
-    r = run(["az", "containerapp", "revision", "list", "-n", name, "-g", rg, "--all",
-             "--query", "[].{name:name,active:properties.active,created:properties.createdTime}", "-o", "json"],
-            capture=True)
-    all_revisions = json.loads(r.stdout or "[]")
-    if any(revision["active"] for revision in all_revisions):
-        print("La app ya tiene una revisión activa.")
+    fqdn = app_fqdn(name, rg)
+    if fqdn:
+        print(f"{name} ya está levantada: https://{fqdn}")
         return
-    revisions = [revision for revision in all_revisions if not revision["active"]]
-    if not revisions:
-        print("No hay revisiones inactivas para reactivar.")
-        return
-    revision = max(revisions, key=lambda item: item["created"] or "")["name"]
-    cmd = ["az", "containerapp", "revision", "activate", "-n", name, "-g", rg, "--revision", revision]
-    confirm(f"Se va a REACTIVAR la revisión {revision} de {name}.", [cmd], args)
+    cmd = ["az", "containerapp", "ingress", "enable", "-n", name, "-g", rg, "--type", "external",
+           "--target-port", TARGET_PORT, "--transport", "auto", "--allow-insecure", "false", "-o", "none"]
+    confirm(f"Se va a LEVANTAR {name}: ingress externo en el puerto {TARGET_PORT}.", [cmd], args)
     run(cmd)
+    fqdn = app_fqdn(name, rg)
+    print(f"App levantada: https://{fqdn}/health (el primer request tarda ~45 s mientras arranca Spring).")
 
 
 def cmd_status(args) -> None:
@@ -407,7 +405,7 @@ MENU = [
     ("deploy", "Desplegar / actualizar"), ("status", "Estado del Container App"),
     ("url", "Ver URL"), ("logs", "Seguir logs (Log Analytics)"), ("revisions", "Listar revisiones"),
     ("list", "Listar apps e imágenes"),
-    ("scan", "Escanear imagen con Grype"), ("start", "Reactivar app"),
+    ("scan", "Escanear imagen con Grype"), ("start", "Levantar app"),
     ("stop", "Apagar app"), ("delete", "Borrar Container App"),
 ]
 
@@ -461,8 +459,8 @@ def main() -> None:
         "url": (cmd_url, "muestra la URL pública"),
         "logs": (cmd_logs, "muestra logs; --follow para seguirlos"),
         "revisions": (cmd_revisions, "lista las revisiones"),
-        "start": (cmd_start, "reactiva la revisión inactiva más reciente"),
-        "stop": (cmd_stop, "desactiva las revisiones activas"),
+        "start": (cmd_start, "levanta la app (habilita el ingress)"),
+        "stop": (cmd_stop, "apaga la app (deshabilita el ingress)"),
         "delete": (cmd_delete, "borra el Container App"),
         "list": (cmd_list, "lista apps e imágenes (tabla)"),
         "scan": (cmd_scan, "escanea la imagen local con grype"),
